@@ -71,8 +71,9 @@ function buildTokens(versions: Version[]) {
     addAliasToken(tokens, "東方", p => p.categories.add("東方Project"));
     addAliasToken(tokens, "touhou", p => p.categories.add("東方Project"));
 
+    addAliasToken(tokens, "术", p => p.categories.add("niconico＆ボーカロイド"));
+    addAliasToken(tokens, "术曲", p => p.categories.add("niconico＆ボーカロイド"));
     addAliasToken(tokens, "术力口", p => p.categories.add("niconico＆ボーカロイド"));
-    addAliasToken(tokens, "術力口", p => p.categories.add("niconico＆ボーカロイド"));
     addAliasToken(tokens, "ボカロ", p => p.categories.add("niconico＆ボーカロイド"));
     addAliasToken(tokens, "vocaloid", p => p.categories.add("niconico＆ボーカロイド"));
     addAliasToken(tokens, "nico", p => p.categories.add("niconico＆ボーカロイド"));
@@ -86,7 +87,6 @@ function buildTokens(versions: Version[]) {
     addAliasToken(tokens, "オンゲキ", p => p.categories.add("オンゲキ＆CHUNITHM"));
 
     addAliasToken(tokens, "游戏", p => p.categories.add("ゲーム＆バラエティ"));
-    addAliasToken(tokens, "遊戲", p => p.categories.add("ゲーム＆バラエティ"));
     addAliasToken(tokens, "バラエティ", p => p.categories.add("ゲーム＆バラエティ"));
 
     addAliasToken(tokens, "动漫", p => p.categories.add("POPS＆アニメ"));
