@@ -177,10 +177,9 @@ function buildTokens(versions: Version[]) {
     addAliasToken(tokens, "sss+", p => setMinRankRate(p, "sssp"));
     addAliasToken(tokens, "sssp", p => setMinRankRate(p, "sssp"));
     addAliasToken(tokens, "鸟加", p => setMinRankRate(p, "sssp"));
-    addAliasToken(tokens, "鳥加", p => setMinRankRate(p, "sssp"));
+    addAliasToken(tokens, "鸟+", p => setMinRankRate(p, "sssp"));
     addAliasToken(tokens, "sss", p => setMinRankRate(p, "sss"));
     addAliasToken(tokens, "鸟", p => setMinRankRate(p, "sss"));
-    addAliasToken(tokens, "鳥", p => setMinRankRate(p, "sss"));
     addAliasToken(tokens, "ss+", p => setMinRankRate(p, "ssp"));
     addAliasToken(tokens, "ssp", p => setMinRankRate(p, "ssp"));
     addAliasToken(tokens, "ss", p => setMinRankRate(p, "ss"));
