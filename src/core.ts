@@ -332,19 +332,19 @@ function musicKeywordScore(music: Music, keyword: string): number {
         else if (f.includes(k)) best = Math.max(best, 60);
     }
 
-    // Aliases (require at least 3/4 match length)
+    // Aliases (require at least 2/3 match length)
     const aliases = music.aliases?.cn ?? [];
     for (const alias of aliases) {
         const f = normalizeText(alias);
         if (f.length === 0) continue;
 
-        // Check if length of matching part (k.length) is at least 3/4 of the alias length (f.length)
+        if (f === k) best = Math.max(best, 100);
+        else if (f.startsWith(k)) best = Math.max(best, 80);
+
+        // Check if length of matching part (k.length) is at least 2/3 of the alias length (f.length)
         if (k.length * 3 < f.length * 2) {
             continue;
         }
-
-        if (f === k) best = Math.max(best, 100);
-        else if (f.startsWith(k)) best = Math.max(best, 80);
         else if (f.includes(k)) best = Math.max(best, 60);
     }
 
