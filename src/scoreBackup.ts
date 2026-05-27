@@ -122,7 +122,7 @@ const SCORE_COEFFICIENT_TABLE = [
 ] as const;
 
 function normalizeMusicId(id: number): number {
-    return id >= 10000 ? id % 10000 : id;
+    return id >= 10000 && id <= 99999 ? id % 10000 : id;
 }
 
 function getBackupChartType(detail: SaltNetBackupMusicDetail): ChartType {
