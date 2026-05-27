@@ -48,6 +48,13 @@ function buildTokens(versions: Version[]) {
     addAliasToken(tokens, "紫谱", p => p.difficulties.add(Difficulty.Master));
     addAliasToken(tokens, "白谱", p => p.difficulties.add(Difficulty.ReMaster));
     addAliasToken(tokens, "宴谱", p => p.difficulties.add(Difficulty.Utage));
+    addAliasToken(tokens, "宴", p => p.difficulties.add(Difficulty.Utage));
+    addAliasToken(tokens, "绿", p => p.difficulties.add(Difficulty.Basic));
+    addAliasToken(tokens, "黄", p => p.difficulties.add(Difficulty.Advanced));
+    addAliasToken(tokens, "红", p => p.difficulties.add(Difficulty.Expert));
+    addAliasToken(tokens, "紫", p => p.difficulties.add(Difficulty.Master));
+    addAliasToken(tokens, "白", p => p.difficulties.add(Difficulty.ReMaster));
+    addAliasToken(tokens, "宴", p => p.difficulties.add(Difficulty.Utage));
 
     addAliasToken(tokens, "basic", p => p.difficulties.add(Difficulty.Basic));
     addAliasToken(tokens, "advanced", p => p.difficulties.add(Difficulty.Advanced));
