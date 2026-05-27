@@ -506,6 +506,10 @@ function sortedStrings<T extends string>(values: Set<T>): T[] {
     return [...values].sort((a, b) => a.localeCompare(b));
 }
 
+function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parseQuery(
     query: string,
     versions: Version[],
@@ -522,7 +526,16 @@ function parseQuery(
     for (const group of groupTokensByRaw(tokens)) {
         const raw = group[0].raw;
 
-        while (rest.includes(raw)) {
+        let pattern = escapeRegExp(raw);
+        if (/^[a-z]/.test(raw)) {
+            pattern = `(?<![a-z])${pattern}`;
+        }
+        if (/[a-z]$/.test(raw)) {
+            pattern = `${pattern}(?![a-z])`;
+        }
+        const regex = new RegExp(pattern, "i");
+
+        while (regex.test(rest)) {
             const nextBranches: ParsedQueryBranch[] = [];
 
             for (const branch of parsed.branches) {
@@ -534,7 +547,7 @@ function parseQuery(
             }
 
             parsed.branches = dedupeBranches(nextBranches);
-            rest = rest.replace(raw, "");
+            rest = rest.replace(regex, "");
         }
     }
 
@@ -745,7 +758,7 @@ function chartScoreMatches(
     return true;
 }
 
-function musicKeywordScore(music: Music, keyword: string): number {
+function songKeywordScore(music: Music, keyword: string): number {
     if (!keyword) return 1;
 
     const k = normalizeText(keyword);
@@ -774,6 +787,47 @@ function musicKeywordScore(music: Music, keyword: string): number {
             continue;
         }
         else if (f.includes(k)) best = Math.max(best, 60);
+    }
+
+    return best;
+}
+
+function chartDesignerKeywordScore(chart: Chart, keyword: string): number {
+    if (!keyword) return 1;
+
+    const k = normalizeText(keyword);
+    const designer = getChartNoteDesigner(chart);
+    if (!designer) return 0;
+
+    const designerNames = [designer];
+    const normDesigner = normalizeText(designer);
+    for (const [key, aliases] of Object.entries(NOTE_DESIGNER_ALIASES)) {
+        if (normalizeText(key) === normDesigner) {
+            designerNames.push(...aliases);
+            break;
+        }
+    }
+
+    let best = 0;
+    for (const name of designerNames) {
+        const f = normalizeText(name);
+        if (f.length === 0) continue;
+
+        if (f === k) best = Math.max(best, 100);
+        else if (f.startsWith(k)) best = Math.max(best, 80);
+        else if (f.includes(k)) best = Math.max(best, 60);
+    }
+
+    return best;
+}
+
+function musicKeywordScore(music: Music, keyword: string): number {
+    if (!keyword) return 1;
+
+    let best = songKeywordScore(music, keyword);
+
+    for (const chart of music.charts) {
+        best = Math.max(best, chartDesignerKeywordScore(chart, keyword));
     }
 
     return best;
@@ -847,9 +901,9 @@ export function searchCharts(
     const seen = new Set<string>();
 
     for (const music of musics) {
-        const score = musicKeywordScore(music, parsed.keyword);
+        const musicScore = musicKeywordScore(music, parsed.keyword);
 
-        if (parsed.keyword && score <= 0) {
+        if (parsed.keyword && musicScore <= 0) {
             continue;
         }
 
@@ -872,6 +926,14 @@ export function searchCharts(
             );
 
             for (const chart of matchingCharts) {
+                const score = parsed.keyword
+                    ? Math.max(songKeywordScore(music, parsed.keyword), chartDesignerKeywordScore(chart, parsed.keyword))
+                    : 1;
+
+                if (parsed.keyword && score <= 0) {
+                    continue;
+                }
+
                 const scoreRecord = options?.scores?.recordMap.get(getChartScoreKey(music, chart));
                 const result = { music, chart, score, scoreRecord };
                 const key = chartResultKey(result);
