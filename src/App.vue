@@ -37,7 +37,7 @@ const filteredMusics = computed(() => {
         <input 
           type="text" 
           v-model="searchQuery" 
-          placeholder="Search by song name, artist, alias, or ID..." 
+          placeholder="Search" 
           class="search-input"
         />
         <span class="count-badge">Found: {{ filteredMusics.length }}</span>
@@ -74,7 +74,5 @@ pre {
   background: #f4f4f4;
   padding: 1rem;
   border-radius: 4px;
-  overflow: auto;
-  max-height: 80vh;
 }
 </style>
