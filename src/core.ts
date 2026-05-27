@@ -1,5 +1,13 @@
 import { sify } from "chinese-conv";
 import type { Music, Version, MusicDifficultyID } from "maimai_music_metadata";
+import {
+    getChartScoreKey,
+    type ComboStatus,
+    type LoadedScoreData,
+    type LoadedScoreRecord,
+    type RankRate,
+    type SyncStatus,
+} from "./scoreBackup";
 
 type ChartType = "sd" | "dx" | "utage";
 type Chart = Music["charts"][number];
@@ -8,6 +16,11 @@ export interface ChartSearchResult {
     music: Music;
     chart: Chart;
     score: number;
+    scoreRecord?: LoadedScoreRecord;
+}
+
+export interface SearchOptions {
+    scores?: LoadedScoreData | null;
 }
 
 type AliasToken = {
@@ -29,6 +42,11 @@ interface ParsedQueryBranch {
     levels: Set<string>;
     minInternalLevel?: number;
     maxInternalLevel?: number;
+    minComboStatus?: ComboStatus;
+    minSyncStatus?: SyncStatus;
+    minRankRate?: RankRate;
+    minDxScoreTier?: number;
+    b50Only?: boolean;
 }
 
 const Difficulty = {
@@ -39,6 +57,25 @@ const Difficulty = {
     ReMaster: 4,
     Utage: 10,
 } as const satisfies Record<string, MusicDifficultyID>;
+
+const COMBO_STATUS_ORDER: ComboStatus[] = ["", "fc", "fcp", "ap", "app"];
+const SYNC_STATUS_ORDER: SyncStatus[] = ["", "sync", "fs", "fsp", "fsd", "fsdp"];
+const RANK_RATE_ORDER: RankRate[] = [
+    "d",
+    "c",
+    "b",
+    "bb",
+    "bbb",
+    "a",
+    "aa",
+    "aaa",
+    "s",
+    "sp",
+    "ss",
+    "ssp",
+    "sss",
+    "sssp",
+];
 
 function normalizeText(text: string): string {
     return sify(text)
@@ -54,6 +91,31 @@ function addAliasToken(
     apply: (parsed: ParsedQueryBranch) => void,
 ) {
     tokens.push({ raw: normalizeText(raw), apply });
+}
+
+function setMinByOrder<T>(
+    current: T | undefined,
+    incoming: T,
+    order: readonly T[],
+): T {
+    if (current === undefined) return incoming;
+    return order.indexOf(incoming) > order.indexOf(current) ? incoming : current;
+}
+
+function setMinComboStatus(branch: ParsedQueryBranch, status: ComboStatus) {
+    branch.minComboStatus = setMinByOrder(branch.minComboStatus, status, COMBO_STATUS_ORDER);
+}
+
+function setMinSyncStatus(branch: ParsedQueryBranch, status: SyncStatus) {
+    branch.minSyncStatus = setMinByOrder(branch.minSyncStatus, status, SYNC_STATUS_ORDER);
+}
+
+function setMinRankRate(branch: ParsedQueryBranch, rank: RankRate) {
+    branch.minRankRate = setMinByOrder(branch.minRankRate, rank, RANK_RATE_ORDER);
+}
+
+function setMinDxScoreTier(branch: ParsedQueryBranch, tier: number) {
+    branch.minDxScoreTier = Math.max(branch.minDxScoreTier ?? 0, tier);
 }
 
 function buildTokens(versions: Version[]) {
@@ -90,6 +152,65 @@ function buildTokens(versions: Version[]) {
     addAliasToken(tokens, "dx谱", p => p.chartTypes.add("dx"));
     addAliasToken(tokens, "dx", p => p.chartTypes.add("dx"));
     addAliasToken(tokens, "宴", p => p.chartTypes.add("utage"));
+
+    // 玩家成绩：按“达到及以上”筛选。
+    addAliasToken(tokens, "fc+", p => setMinComboStatus(p, "fcp"));
+    addAliasToken(tokens, "fcp", p => setMinComboStatus(p, "fcp"));
+    addAliasToken(tokens, "fc", p => setMinComboStatus(p, "fc"));
+    addAliasToken(tokens, "ap+", p => setMinComboStatus(p, "app"));
+    addAliasToken(tokens, "app", p => setMinComboStatus(p, "app"));
+    addAliasToken(tokens, "ap", p => setMinComboStatus(p, "ap"));
+
+    addAliasToken(tokens, "fsdx+", p => setMinSyncStatus(p, "fsdp"));
+    addAliasToken(tokens, "fsd+", p => setMinSyncStatus(p, "fsdp"));
+    addAliasToken(tokens, "fdx+", p => setMinSyncStatus(p, "fsdp"));
+    addAliasToken(tokens, "fsdp", p => setMinSyncStatus(p, "fsdp"));
+    addAliasToken(tokens, "fdxp", p => setMinSyncStatus(p, "fsdp"));
+    addAliasToken(tokens, "fsdx", p => setMinSyncStatus(p, "fsd"));
+    addAliasToken(tokens, "fsd", p => setMinSyncStatus(p, "fsd"));
+    addAliasToken(tokens, "fdx", p => setMinSyncStatus(p, "fsd"));
+    addAliasToken(tokens, "fs+", p => setMinSyncStatus(p, "fsp"));
+    addAliasToken(tokens, "fsp", p => setMinSyncStatus(p, "fsp"));
+    addAliasToken(tokens, "fs", p => setMinSyncStatus(p, "fs"));
+    addAliasToken(tokens, "sync", p => setMinSyncStatus(p, "sync"));
+
+    addAliasToken(tokens, "sss+", p => setMinRankRate(p, "sssp"));
+    addAliasToken(tokens, "sssp", p => setMinRankRate(p, "sssp"));
+    addAliasToken(tokens, "鸟加", p => setMinRankRate(p, "sssp"));
+    addAliasToken(tokens, "鳥加", p => setMinRankRate(p, "sssp"));
+    addAliasToken(tokens, "sss", p => setMinRankRate(p, "sss"));
+    addAliasToken(tokens, "鸟", p => setMinRankRate(p, "sss"));
+    addAliasToken(tokens, "鳥", p => setMinRankRate(p, "sss"));
+    addAliasToken(tokens, "ss+", p => setMinRankRate(p, "ssp"));
+    addAliasToken(tokens, "ssp", p => setMinRankRate(p, "ssp"));
+    addAliasToken(tokens, "ss", p => setMinRankRate(p, "ss"));
+    addAliasToken(tokens, "s+", p => setMinRankRate(p, "sp"));
+    addAliasToken(tokens, "sp", p => setMinRankRate(p, "sp"));
+    addAliasToken(tokens, "aaa", p => setMinRankRate(p, "aaa"));
+    addAliasToken(tokens, "aa", p => setMinRankRate(p, "aa"));
+    addAliasToken(tokens, "bbb", p => setMinRankRate(p, "bbb"));
+    addAliasToken(tokens, "bb", p => setMinRankRate(p, "bb"));
+
+    addAliasToken(tokens, "b50", p => {
+        p.b50Only = true;
+    });
+
+    const starAliases: Array<[string, number]> = [
+        ["一", 1],
+        ["二", 2],
+        ["三", 3],
+        ["四", 4],
+        ["五", 5],
+        ["1", 1],
+        ["2", 2],
+        ["3", 3],
+        ["4", 4],
+        ["5", 5],
+    ];
+    for (const [raw, tier] of starAliases) {
+        addAliasToken(tokens, `${raw}星`, p => setMinDxScoreTier(p, tier));
+        addAliasToken(tokens, `dx${raw}星`, p => setMinDxScoreTier(p, tier));
+    }
 
     // 分类。分类名按仓库 categories 的实际字符串来。
     addAliasToken(tokens, "东方", p => p.categories.add("東方Project"));
@@ -160,6 +281,11 @@ function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
         levels: new Set(branch.levels),
         minInternalLevel: branch.minInternalLevel,
         maxInternalLevel: branch.maxInternalLevel,
+        minComboStatus: branch.minComboStatus,
+        minSyncStatus: branch.minSyncStatus,
+        minRankRate: branch.minRankRate,
+        minDxScoreTier: branch.minDxScoreTier,
+        b50Only: branch.b50Only,
     };
 }
 
@@ -173,7 +299,22 @@ function branchKey(branch: ParsedQueryBranch): string {
         levels: [...branch.levels].sort(),
         minInternalLevel: branch.minInternalLevel,
         maxInternalLevel: branch.maxInternalLevel,
+        minComboStatus: branch.minComboStatus,
+        minSyncStatus: branch.minSyncStatus,
+        minRankRate: branch.minRankRate,
+        minDxScoreTier: branch.minDxScoreTier,
+        b50Only: branch.b50Only,
     });
+}
+
+function hasScoreFilters(branch: ParsedQueryBranch): boolean {
+    return (
+        branch.minComboStatus !== undefined ||
+        branch.minSyncStatus !== undefined ||
+        branch.minRankRate !== undefined ||
+        branch.minDxScoreTier !== undefined ||
+        branch.b50Only === true
+    );
 }
 
 function dedupeBranches(branches: ParsedQueryBranch[]): ParsedQueryBranch[] {
@@ -198,7 +339,8 @@ function hasChartFilters(branch: ParsedQueryBranch): boolean {
         branch.levels.size > 0 ||
         branch.versions.size > 0 ||
         branch.minInternalLevel !== undefined ||
-        branch.maxInternalLevel !== undefined
+        branch.maxInternalLevel !== undefined ||
+        hasScoreFilters(branch)
     );
 }
 
@@ -300,13 +442,17 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         return "";
     });
 
-    // 5. 识别但忽略玩家成绩条件：fc / fc+ / ap / ap+ / b50
-    // 因为 Music metadata 里没有玩家成绩数据；移除它们是为了不污染 keyword。
+    // 5. 清掉旧查询里可能出现但暂不支持的 b 数字条件，避免污染 keyword。
     rest = rest.replace(/(?:ap\+|ap|fc\+|fcp|fc|b\d{1,3})/g, "");
 
     parsed.keyword = rest;
 
     return parsed;
+}
+
+export function queryNeedsScoreData(query: string, versions: Version[]): boolean {
+    const parsed = parseQuery(query, versions);
+    return parsed.branches.some(hasScoreFilters);
 }
 
 function chartMatches(chart: Music["charts"][number], branch: ParsedQueryBranch): boolean {
@@ -349,6 +495,61 @@ function chartMatchesWithoutDifficulty(chart: Chart, branch: ParsedQueryBranch):
     const branchWithoutDifficulty = cloneParsedQueryBranch(branch);
     branchWithoutDifficulty.difficulties.clear();
     return chartMatches(chart, branchWithoutDifficulty);
+}
+
+function orderValue<T>(order: readonly T[], value: T): number {
+    const index = order.indexOf(value);
+    return index === -1 ? 0 : index;
+}
+
+function chartScoreMatches(
+    music: Music,
+    chart: Chart,
+    branch: ParsedQueryBranch,
+    options?: SearchOptions,
+): boolean {
+    if (!hasScoreFilters(branch)) return true;
+    if (!options?.scores) return true;
+
+    const record = options.scores.recordMap.get(getChartScoreKey(music, chart));
+    if (!record) return false;
+
+    if (branch.b50Only && !record.isB50) {
+        return false;
+    }
+
+    if (
+        branch.minComboStatus !== undefined &&
+        orderValue(COMBO_STATUS_ORDER, record.comboStatus) <
+            orderValue(COMBO_STATUS_ORDER, branch.minComboStatus)
+    ) {
+        return false;
+    }
+
+    if (
+        branch.minSyncStatus !== undefined &&
+        orderValue(SYNC_STATUS_ORDER, record.syncStatus) <
+            orderValue(SYNC_STATUS_ORDER, branch.minSyncStatus)
+    ) {
+        return false;
+    }
+
+    if (
+        branch.minRankRate !== undefined &&
+        orderValue(RANK_RATE_ORDER, record.rankRate) <
+            orderValue(RANK_RATE_ORDER, branch.minRankRate)
+    ) {
+        return false;
+    }
+
+    if (
+        branch.minDxScoreTier !== undefined &&
+        record.dxScoreTier < branch.minDxScoreTier
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 function musicKeywordScore(music: Music, keyword: string): number {
@@ -444,6 +645,7 @@ export function searchCharts(
     query: string,
     musics: Music[],
     versions: Version[],
+    options?: SearchOptions,
 ): ChartSearchResult[] {
     const parsed = parseQuery(query, versions);
     const results: ChartSearchResult[] = [];
@@ -467,13 +669,16 @@ export function searchCharts(
 
             const hasDifficultyFilter = branch.difficulties.size > 0;
             const matchingCharts = music.charts.filter(chart =>
-                hasDifficultyFilter
-                    ? chartMatches(chart, branch)
-                    : chartMatchesWithoutDifficulty(chart, branch),
+                (
+                    hasDifficultyFilter
+                        ? chartMatches(chart, branch)
+                        : chartMatchesWithoutDifficulty(chart, branch)
+                ) && chartScoreMatches(music, chart, branch, options),
             );
 
             for (const chart of matchingCharts) {
-                const result = { music, chart, score };
+                const scoreRecord = options?.scores?.recordMap.get(getChartScoreKey(music, chart));
+                const result = { music, chart, score, scoreRecord };
                 const key = chartResultKey(result);
 
                 if (seen.has(key)) {

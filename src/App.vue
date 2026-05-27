@@ -2,18 +2,33 @@
 import { ref, computed, onMounted } from "vue";
 import { loadFullMetadata } from "maimai_music_metadata";
 import type { Music, MusicMetadata, MusicDifficultyID } from "maimai_music_metadata";
-import { searchCharts, type ChartSearchResult } from "./core";
+import { queryNeedsScoreData, searchCharts, type ChartSearchResult } from "./core";
+import {
+  parseSaltNetBackup,
+  type ComboStatus,
+  type LoadedScoreData,
+  type LoadedScoreRecord,
+  type RankRate,
+  type SyncStatus,
+} from "./scoreBackup";
+
+const SCORE_BACKUP_STORAGE_KEY = "saltnet-score-backup-json";
 
 const metadata = ref<MusicMetadata | null>(null);
 const loading = ref(true);
-const error = ref<any>(null);
+const error = ref<unknown>(null);
 const searchQuery = ref("");
 const selectedMusic = ref<Music | null>(null);
 const dialogRef = ref<HTMLDialogElement | null>(null);
+const scoreData = ref<LoadedScoreData | null>(null);
+const scoreBackupError = ref<string | null>(null);
+const importingScoreBackup = ref(false);
 
 onMounted(async () => {
   try {
-    metadata.value = await loadFullMetadata();
+    const loadedMetadata = await loadFullMetadata();
+    metadata.value = loadedMetadata;
+    restoreSavedScoreBackup(loadedMetadata);
   } catch (e) {
     error.value = e;
     console.error("Failed to load metadata:", e);
@@ -24,7 +39,25 @@ onMounted(async () => {
 
 const filteredCharts = computed(() => {
   if (!metadata.value) return [];
-  return searchCharts(searchQuery.value, metadata.value.musics, metadata.value.versions);
+  return searchCharts(searchQuery.value, metadata.value.musics, metadata.value.versions, {
+    scores: scoreData.value,
+  });
+});
+
+const scoreFilterNeedsImport = computed(() => {
+  if (!metadata.value || scoreData.value) return false;
+  return queryNeedsScoreData(searchQuery.value, metadata.value.versions);
+});
+
+const scoreBackupStatus = computed(() => {
+  if (!scoreData.value) return "未导入成绩";
+
+  const name = scoreData.value.userName ?? "未知玩家";
+  const unmatched = scoreData.value.unmatchedRecords > 0
+    ? `，${scoreData.value.unmatchedRecords} 未匹配`
+    : "";
+
+  return `${name} / ${scoreData.value.matchedRecords}/${scoreData.value.sourceRecordCount} 谱面${unmatched}`;
 });
 
 const selectedMusicJson = computed(() => {
@@ -41,6 +74,40 @@ const difficultyLabels: Record<number, string> = {
   10: "UTAGE",
 };
 
+const rankDisplayNames: Record<RankRate, string> = {
+  d: "D",
+  c: "C",
+  b: "B",
+  bb: "BB",
+  bbb: "BBB",
+  a: "A",
+  aa: "AA",
+  aaa: "AAA",
+  s: "S",
+  sp: "S+",
+  ss: "SS",
+  ssp: "SS+",
+  sss: "SSS",
+  sssp: "SSS+",
+};
+
+const comboDisplayNames: Record<ComboStatus, string> = {
+  "": "",
+  fc: "FC",
+  fcp: "FC+",
+  ap: "AP",
+  app: "AP+",
+};
+
+const syncDisplayNames: Record<SyncStatus, string> = {
+  "": "",
+  sync: "SYNC",
+  fs: "FS",
+  fsp: "FS+",
+  fsd: "FSDX",
+  fsdp: "FSDX+",
+};
+
 function getCoverUrl(id: number) {
   return `https://meta.salt.realtvop.top/covers/00${id.toString().padStart(6, "0").substring(2)}.png`;
 }
@@ -55,6 +122,26 @@ function chartTypeLabel(type: ChartSearchResult["chart"]["type"]) {
 
 function formatInternalLevel(level: number) {
   return level.toFixed(1);
+}
+
+function formatAchievement(achievement: number) {
+  return `${achievement.toFixed(4).replace(/\.?0+$/, "")}%`;
+}
+
+function formatRankRate(rankRate: RankRate) {
+  return rankDisplayNames[rankRate];
+}
+
+function formatComboStatus(status: ComboStatus) {
+  return comboDisplayNames[status];
+}
+
+function formatSyncStatus(status: SyncStatus) {
+  return syncDisplayNames[status];
+}
+
+function formatDxScoreTier(record: LoadedScoreRecord) {
+  return `${record.dxScoreTier}星`;
 }
 
 function difficultyClass(difficulty: MusicDifficultyID) {
@@ -96,6 +183,64 @@ function hideBrokenCover(event: Event) {
     image.hidden = true;
   }
 }
+
+function getErrorMessage(value: unknown) {
+  return value instanceof Error ? value.message : String(value);
+}
+
+function loadScoreBackupText(text: string, loadedMetadata: MusicMetadata, persist: boolean) {
+  const raw = JSON.parse(text);
+  const parsed = parseSaltNetBackup(raw, loadedMetadata.musics, loadedMetadata.versions);
+
+  scoreData.value = parsed;
+  scoreBackupError.value = null;
+
+  if (persist) {
+    localStorage.setItem(SCORE_BACKUP_STORAGE_KEY, text);
+  }
+}
+
+function restoreSavedScoreBackup(loadedMetadata: MusicMetadata) {
+  const saved = localStorage.getItem(SCORE_BACKUP_STORAGE_KEY);
+  if (!saved) return;
+
+  try {
+    loadScoreBackupText(saved, loadedMetadata, false);
+  } catch (e) {
+    scoreBackupError.value = `已保存的成绩备份无法读取：${getErrorMessage(e)}`;
+  }
+}
+
+async function handleScoreBackupFile(event: Event) {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement)) return;
+
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+
+  if (!metadata.value) {
+    scoreBackupError.value = "曲目数据还没有加载完成";
+    return;
+  }
+
+  importingScoreBackup.value = true;
+
+  try {
+    const text = await file.text();
+    loadScoreBackupText(text, metadata.value, true);
+  } catch (e) {
+    scoreBackupError.value = `导入失败：${getErrorMessage(e)}`;
+  } finally {
+    importingScoreBackup.value = false;
+  }
+}
+
+function clearScoreBackup() {
+  scoreData.value = null;
+  scoreBackupError.value = null;
+  localStorage.removeItem(SCORE_BACKUP_STORAGE_KEY);
+}
 </script>
 
 <template>
@@ -120,7 +265,7 @@ function hideBrokenCover(event: Event) {
     </header>
     
     <div v-if="loading">Loading metadata...</div>
-    <div v-else-if="error">Error: {{ error }}</div>
+    <div v-else-if="error">Error: {{ getErrorMessage(error) }}</div>
     <div v-else>
       <div class="search-bar">
         <input 
@@ -130,6 +275,32 @@ function hideBrokenCover(event: Event) {
           class="search-input"
         />
         <span class="count-badge">Charts: {{ filteredCharts.length }}</span>
+        <label class="file-button" :class="{ disabled: importingScoreBackup }">
+          <input
+            type="file"
+            accept="application/json,.json"
+            class="file-input"
+            :disabled="importingScoreBackup"
+            @change="handleScoreBackupFile"
+          />
+          {{ importingScoreBackup ? "导入中..." : "导入成绩" }}
+        </label>
+        <span class="score-status" :class="{ loaded: scoreData }">{{ scoreBackupStatus }}</span>
+        <button
+          v-if="scoreData"
+          type="button"
+          class="clear-score-button"
+          @click="clearScoreBackup"
+        >
+          清除成绩
+        </button>
+      </div>
+
+      <div v-if="scoreFilterNeedsImport || scoreBackupError" class="score-messages">
+        <p v-if="scoreFilterNeedsImport" class="score-alert">
+          当前查询包含成绩条件，导入 SaltNet 成绩备份后才会按成绩筛选。
+        </p>
+        <p v-if="scoreBackupError" class="score-error">{{ scoreBackupError }}</p>
       </div>
 
       <div v-if="filteredCharts.length > 0" class="result-grid">
@@ -164,6 +335,21 @@ function hideBrokenCover(event: Event) {
               <span class="internal-level">{{ formatInternalLevel(result.chart.internalLevel) }}</span>
               <span>{{ chartTypeLabel(result.chart.type) }}</span>
               <span>{{ result.chart.version ?? "未知版本" }}</span>
+            </span>
+
+            <span v-if="result.scoreRecord" class="score-badges">
+              <span class="score-pill rank-pill">{{ formatRankRate(result.scoreRecord.rankRate) }}</span>
+              <span class="score-pill">{{ formatAchievement(result.scoreRecord.achievement) }}</span>
+              <span v-if="result.scoreRecord.comboStatus" class="score-pill combo-pill">
+                {{ formatComboStatus(result.scoreRecord.comboStatus) }}
+              </span>
+              <span v-if="result.scoreRecord.syncStatus" class="score-pill sync-pill">
+                {{ formatSyncStatus(result.scoreRecord.syncStatus) }}
+              </span>
+              <span v-if="result.scoreRecord.dxScoreTier > 0" class="score-pill dx-pill">
+                {{ formatDxScoreTier(result.scoreRecord) }}
+              </span>
+              <span v-if="result.scoreRecord.isB50" class="score-pill b50-pill">B50</span>
             </span>
 
             <span class="designer-line">
@@ -287,6 +473,107 @@ h1 {
   color: #404040;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+.file-button,
+.clear-score-button {
+  position: relative;
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid #171717;
+  border-radius: 6px;
+  background: #171717;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.file-button.disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.clear-score-button {
+  border-color: #b8b8b8;
+  background: #ffffff;
+  color: #171717;
+}
+
+.file-button:hover,
+.file-button:focus-within,
+.clear-score-button:hover,
+.clear-score-button:focus-visible {
+  border-color: #000000;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 12%);
+}
+
+.clear-score-button:focus-visible {
+  outline: 2px solid #171717;
+  outline-offset: 2px;
+}
+
+.score-status {
+  display: inline-flex;
+  min-height: 42px;
+  max-width: min(460px, 100%);
+  align-items: center;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid #d5d5d5;
+  border-radius: 6px;
+  color: #606060;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-status.loaded {
+  border-color: #9bc7a2;
+  background: #f3fbf4;
+  color: #265f31;
+}
+
+.score-messages {
+  display: grid;
+  gap: 8px;
+  margin: -8px 0 20px;
+}
+
+.score-alert,
+.score-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.score-alert {
+  border: 1px solid #e5c56b;
+  background: #fff9e6;
+  color: #725400;
+}
+
+.score-error {
+  border: 1px solid #e0a0a0;
+  background: #fff1f1;
+  color: #8a1f1f;
 }
 
 .result-grid {
@@ -460,6 +747,49 @@ h1 {
   white-space: nowrap;
 }
 
+.score-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.score-pill {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid rgb(0 0 0 / 16%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 72%);
+  color: #171717;
+  font-size: 0.72rem;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rank-pill {
+  background: #fff0c7;
+}
+
+.combo-pill {
+  background: #f1ddff;
+}
+
+.sync-pill {
+  background: #dff2ff;
+}
+
+.dx-pill {
+  background: #f7ffd9;
+}
+
+.b50-pill {
+  background: #171717;
+  color: #ffffff;
+}
+
 .empty-state {
   margin: 28px 0 0;
   color: #606060;
@@ -546,7 +876,10 @@ h1 {
   }
 
   .search-input,
-  .count-badge {
+  .count-badge,
+  .file-button,
+  .clear-score-button,
+  .score-status {
     width: 100%;
   }
 
