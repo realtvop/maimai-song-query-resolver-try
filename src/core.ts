@@ -2,8 +2,17 @@ import type { Music, Version, MusicDifficultyID } from "maimai_music_metadata";
 
 type ChartType = "sd" | "dx" | "utage";
 
+type AliasToken = {
+    raw: string;
+    apply: (parsed: ParsedQueryBranch) => void;
+};
+
 interface ParsedQuery {
     keyword: string;
+    branches: ParsedQueryBranch[];
+}
+
+interface ParsedQueryBranch {
     categories: Set<string>;
     versions: Set<string>;
     difficulties: Set<MusicDifficultyID>;
@@ -31,15 +40,15 @@ function normalizeText(text: string): string {
 }
 
 function addAliasToken(
-    tokens: Array<{ raw: string; apply: (parsed: ParsedQuery) => void }>,
+    tokens: AliasToken[],
     raw: string,
-    apply: (parsed: ParsedQuery) => void,
+    apply: (parsed: ParsedQueryBranch) => void,
 ) {
     tokens.push({ raw: normalizeText(raw), apply });
 }
 
 function buildTokens(versions: Version[]) {
-    const tokens: Array<{ raw: string; apply: (parsed: ParsedQuery) => void }> = [];
+    const tokens: AliasToken[] = [];
 
     // 难度。注意长词优先，所以“紫谱”要比“紫”更优先。
     addAliasToken(tokens, "绿谱", p => p.difficulties.add(Difficulty.Basic));
@@ -121,9 +130,8 @@ function buildTokens(versions: Version[]) {
     return tokens;
 }
 
-function createEmptyParsedQuery(): ParsedQuery {
+function createEmptyParsedQueryBranch(): ParsedQueryBranch {
     return {
-        keyword: "",
         categories: new Set(),
         versions: new Set(),
         difficulties: new Set(),
@@ -132,18 +140,98 @@ function createEmptyParsedQuery(): ParsedQuery {
     };
 }
 
-function parseQuery(query: string, versions: Version[]): ParsedQuery {
-    let rest = normalizeText(query);
-    const parsed = createEmptyParsedQuery();
-    const tokens = buildTokens(versions);
+function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
+    return {
+        categories: new Set(branch.categories),
+        versions: new Set(branch.versions),
+        difficulties: new Set(branch.difficulties),
+        chartTypes: new Set(branch.chartTypes),
+        levels: new Set(branch.levels),
+        minInternalLevel: branch.minInternalLevel,
+        maxInternalLevel: branch.maxInternalLevel,
+    };
+}
 
-    // 1. 识别固定词典 token
+function branchKey(branch: ParsedQueryBranch): string {
+    return JSON.stringify({
+        categories: [...branch.categories].sort(),
+        versions: [...branch.versions].sort(),
+        difficulties: [...branch.difficulties].sort((a, b) => a - b),
+        chartTypes: [...branch.chartTypes].sort(),
+        levels: [...branch.levels].sort(),
+        minInternalLevel: branch.minInternalLevel,
+        maxInternalLevel: branch.maxInternalLevel,
+    });
+}
+
+function dedupeBranches(branches: ParsedQueryBranch[]): ParsedQueryBranch[] {
+    const seen = new Set<string>();
+    const result: ParsedQueryBranch[] = [];
+
+    for (const branch of branches) {
+        const key = branchKey(branch);
+        if (seen.has(key)) continue;
+
+        seen.add(key);
+        result.push(branch);
+    }
+
+    return result;
+}
+
+function hasChartFilters(branch: ParsedQueryBranch): boolean {
+    return (
+        branch.chartTypes.size > 0 ||
+        branch.difficulties.size > 0 ||
+        branch.levels.size > 0 ||
+        branch.versions.size > 0 ||
+        branch.minInternalLevel !== undefined ||
+        branch.maxInternalLevel !== undefined
+    );
+}
+
+function groupTokensByRaw(tokens: AliasToken[]): AliasToken[][] {
+    const groups = new Map<string, AliasToken[]>();
+
     for (const token of tokens) {
         if (!token.raw) continue;
 
-        while (rest.includes(token.raw)) {
-            token.apply(parsed);
-            rest = rest.replace(token.raw, "");
+        const group = groups.get(token.raw);
+        if (group) {
+            group.push(token);
+        } else {
+            groups.set(token.raw, [token]);
+        }
+    }
+
+    return [...groups.values()];
+}
+
+function parseQuery(query: string, versions: Version[]): ParsedQuery {
+    let rest = normalizeText(query);
+    const parsed: ParsedQuery = {
+        keyword: "",
+        branches: [createEmptyParsedQueryBranch()],
+    };
+    const tokens = buildTokens(versions);
+
+    // 1. 识别固定词典 token
+    for (const group of groupTokensByRaw(tokens)) {
+        const raw = group[0].raw;
+
+        while (rest.includes(raw)) {
+            const nextBranches: ParsedQueryBranch[] = [];
+
+            for (const branch of parsed.branches) {
+                for (const token of group) {
+                    const nextBranch = cloneParsedQueryBranch(branch);
+                    token.apply(nextBranch);
+                    nextBranches.push(nextBranch);
+                }
+            }
+
+            parsed.branches = dedupeBranches(nextBranches);
+            rest = rest.replace(raw, "");
         }
     }
 
@@ -151,7 +239,11 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
     // 注意：这里是显示等级，不把 12+ 当 12.5。
     rest = rest.replace(/(?:^|[^a-z0-9])((?:1[0-5]|[1-9])\+?)(?=$|[^a-z0-9])/g, full => {
         const level = full.match(/(?:1[0-5]|[1-9])\+?/)?.[0];
-        if (level) parsed.levels.add(level);
+        if (level) {
+            for (const branch of parsed.branches) {
+                branch.levels.add(level);
+            }
+        }
         return "";
     });
 
@@ -160,19 +252,21 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         const value = Number(rawValue);
         if (!Number.isFinite(value)) return "";
 
-        switch (op || "=") {
-            case ">":
-            case ">=":
-                parsed.minInternalLevel = value;
-                break;
-            case "<":
-            case "<=":
-                parsed.maxInternalLevel = value;
-                break;
-            default:
-                parsed.minInternalLevel = value;
-                parsed.maxInternalLevel = value;
-                break;
+        for (const branch of parsed.branches) {
+            switch (op || "=") {
+                case ">":
+                case ">=":
+                    branch.minInternalLevel = value;
+                    break;
+                case "<":
+                case "<=":
+                    branch.maxInternalLevel = value;
+                    break;
+                default:
+                    branch.minInternalLevel = value;
+                    branch.maxInternalLevel = value;
+                    break;
+            }
         }
 
         return "";
@@ -187,35 +281,35 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
     return parsed;
 }
 
-function chartMatches(chart: Music["charts"][number], parsed: ParsedQuery): boolean {
-    if (parsed.chartTypes.size > 0 && !parsed.chartTypes.has(chart.type)) {
+function chartMatches(chart: Music["charts"][number], branch: ParsedQueryBranch): boolean {
+    if (branch.chartTypes.size > 0 && !branch.chartTypes.has(chart.type)) {
         return false;
     }
 
-    if (parsed.difficulties.size > 0 && !parsed.difficulties.has(chart.difficulty)) {
+    if (branch.difficulties.size > 0 && !branch.difficulties.has(chart.difficulty)) {
         return false;
     }
 
-    if (parsed.levels.size > 0 && !parsed.levels.has(chart.level)) {
+    if (branch.levels.size > 0 && !branch.levels.has(chart.level)) {
         return false;
     }
 
-    if (parsed.versions.size > 0) {
-        if (!chart.version || !parsed.versions.has(chart.version)) {
+    if (branch.versions.size > 0) {
+        if (!chart.version || !branch.versions.has(chart.version)) {
             return false;
         }
     }
 
     if (
-        parsed.minInternalLevel !== undefined &&
-        chart.internalLevel < parsed.minInternalLevel
+        branch.minInternalLevel !== undefined &&
+        chart.internalLevel < branch.minInternalLevel
     ) {
         return false;
     }
 
     if (
-        parsed.maxInternalLevel !== undefined &&
-        chart.internalLevel > parsed.maxInternalLevel
+        branch.maxInternalLevel !== undefined &&
+        chart.internalLevel > branch.maxInternalLevel
     ) {
         return false;
     }
@@ -266,21 +360,17 @@ export function searchMusic(
 
     const results = musics
         .map(music => {
-            if (parsed.categories.size > 0 && !parsed.categories.has(music.category)) {
-                return null;
-            }
+            const hasMatchingBranch = parsed.branches.some(branch => {
+                if (branch.categories.size > 0 && !branch.categories.has(music.category)) {
+                    return false;
+                }
 
-            const hasMatchingChart =
-                parsed.chartTypes.size === 0 &&
-                    parsed.difficulties.size === 0 &&
-                    parsed.levels.size === 0 &&
-                    parsed.versions.size === 0 &&
-                    parsed.minInternalLevel === undefined &&
-                    parsed.maxInternalLevel === undefined
-                    ? true
-                    : music.charts.some(chart => chartMatches(chart, parsed));
+                return hasChartFilters(branch)
+                    ? music.charts.some(chart => chartMatches(chart, branch))
+                    : true;
+            });
 
-            if (!hasMatchingChart) {
+            if (!hasMatchingBranch) {
                 return null;
             }
 
