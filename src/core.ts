@@ -226,17 +226,28 @@ function chartMatches(chart: Music["charts"][number], parsed: ParsedQuery): bool
 function musicKeywordScore(music: Music, keyword: string): number {
     if (!keyword) return 1;
 
-    const fields = [
-        music.title,
-        music.artist,
-        ...(music.aliases?.cn ?? []),
-    ];
-
+    const k = normalizeText(keyword);
     let best = 0;
 
-    for (const field of fields) {
+    // Title and Artist
+    const mainFields = [music.title, music.artist];
+    for (const field of mainFields) {
         const f = normalizeText(field);
-        const k = normalizeText(keyword);
+        if (f === k) best = Math.max(best, 100);
+        else if (f.startsWith(k)) best = Math.max(best, 80);
+        else if (f.includes(k)) best = Math.max(best, 60);
+    }
+
+    // Aliases (require at least 3/4 match length)
+    const aliases = music.aliases?.cn ?? [];
+    for (const alias of aliases) {
+        const f = normalizeText(alias);
+        if (f.length === 0) continue;
+
+        // Check if length of matching part (k.length) is at least 3/4 of the alias length (f.length)
+        if (k.length * 4 < f.length * 3) {
+            continue;
+        }
 
         if (f === k) best = Math.max(best, 100);
         else if (f.startsWith(k)) best = Math.max(best, 80);
