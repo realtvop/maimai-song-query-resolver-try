@@ -83,6 +83,12 @@ function closeMusicJson() {
   dialogRef.value?.close();
 }
 
+function handleDialogClick(event: MouseEvent) {
+  if (event.target === dialogRef.value) {
+    closeMusicJson();
+  }
+}
+
 function hideBrokenCover(event: Event) {
   const image = event.currentTarget;
 
@@ -170,11 +176,14 @@ function hideBrokenCover(event: Event) {
       <p v-else class="empty-state">No results</p>
     </div>
 
-    <dialog ref="dialogRef" class="music-dialog">
+    <dialog ref="dialogRef" class="music-dialog" @click="handleDialogClick">
       <div class="dialog-header">
         <h2>{{ selectedMusic?.title }}</h2>
         <button type="button" class="dialog-close" aria-label="Close" @click="closeMusicJson">
-          x
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="close-icon">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
       <pre class="json-block">{{ selectedMusicJson }}</pre>
@@ -500,11 +509,18 @@ h1 {
   color: #171717;
   cursor: pointer;
   font: inherit;
+  transition: all 0.2s ease;
 }
 
 .dialog-close:hover,
 .dialog-close:focus-visible {
   border-color: #171717;
+  background-color: #f5f5f5;
+  color: #000000;
+}
+
+.close-icon {
+  display: block;
 }
 
 .dialog-close:focus-visible {
