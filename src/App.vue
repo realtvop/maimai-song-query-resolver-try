@@ -18,6 +18,7 @@ const metadata = ref<MusicMetadata | null>(null);
 const loading = ref(true);
 const error = ref<unknown>(null);
 const searchQuery = ref("");
+const activeSearchQuery = ref("");
 const selectedMusic = ref<Music | null>(null);
 const dialogRef = ref<HTMLDialogElement | null>(null);
 const scoreData = ref<LoadedScoreData | null>(null);
@@ -39,14 +40,14 @@ onMounted(async () => {
 
 const filteredCharts = computed(() => {
   if (!metadata.value) return [];
-  return searchCharts(searchQuery.value, metadata.value.musics, metadata.value.versions, {
+  return searchCharts(activeSearchQuery.value, metadata.value.musics, metadata.value.versions, {
     scores: scoreData.value,
   });
 });
 
 const scoreFilterNeedsImport = computed(() => {
   if (!metadata.value || scoreData.value) return false;
-  return queryNeedsScoreData(searchQuery.value, metadata.value.versions);
+  return queryNeedsScoreData(activeSearchQuery.value, metadata.value.versions);
 });
 
 const scoreBackupStatus = computed(() => {
@@ -241,6 +242,15 @@ function clearScoreBackup() {
   scoreBackupError.value = null;
   localStorage.removeItem(SCORE_BACKUP_STORAGE_KEY);
 }
+
+function triggerSearch() {
+  activeSearchQuery.value = searchQuery.value;
+}
+
+function clearSearch() {
+  searchQuery.value = "";
+  activeSearchQuery.value = "";
+}
 </script>
 
 <template>
@@ -268,12 +278,36 @@ function clearScoreBackup() {
     <div v-else-if="error">Error: {{ getErrorMessage(error) }}</div>
     <div v-else>
       <div class="search-bar">
-        <input 
-          type="text" 
-          v-model="searchQuery" 
-          placeholder="Search" 
-          class="search-input"
-        />
+        <div class="search-box">
+          <div class="search-input-wrapper">
+            <input 
+              type="text" 
+              v-model="searchQuery" 
+              placeholder="Search" 
+              class="search-input"
+              @keydown.enter="triggerSearch"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="clear-input-button"
+              @click="clearSearch"
+              aria-label="Clear search"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="clear-icon">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <button
+            type="button"
+            class="search-button"
+            @click="triggerSearch"
+          >
+            搜索
+          </button>
+        </div>
         <span class="count-badge">Charts: {{ filteredCharts.length }}</span>
         <label class="file-button" :class="{ disabled: importingScoreBackup }">
           <input
@@ -446,10 +480,23 @@ h1 {
   margin-bottom: 20px;
 }
 
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(500px, 100%);
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
 .search-input {
-  width: min(420px, 100%);
+  width: 100%;
   height: 42px;
-  padding: 0 12px;
+  padding: 0 36px 0 12px;
   border: 1px solid #b8b8b8;
   border-radius: 6px;
   background: #ffffff;
@@ -461,6 +508,37 @@ h1 {
   border-color: #171717;
   outline: 2px solid #171717;
   outline-offset: 1px;
+}
+
+.clear-input-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #707070;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-input-button:hover {
+  background: #f0f0f0;
+  color: #171717;
+}
+
+.clear-input-button:focus-visible {
+  outline: 2px solid #171717;
+}
+
+.clear-icon {
+  display: block;
 }
 
 .count-badge {
@@ -513,15 +591,36 @@ h1 {
   color: #171717;
 }
 
+.search-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 1px solid #171717;
+  border-radius: 6px;
+  background: #171717;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 650;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
 .file-button:hover,
 .file-button:focus-within,
 .clear-score-button:hover,
-.clear-score-button:focus-visible {
+.clear-score-button:focus-visible,
+.search-button:hover,
+.search-button:focus-visible {
   border-color: #000000;
   box-shadow: 0 0 0 2px rgb(0 0 0 / 12%);
 }
 
-.clear-score-button:focus-visible {
+.clear-score-button:focus-visible,
+.search-button:focus-visible {
   outline: 2px solid #171717;
   outline-offset: 2px;
 }
@@ -875,7 +974,7 @@ h1 {
     padding: 18px;
   }
 
-  .search-input,
+  .search-box,
   .count-badge,
   .file-button,
   .clear-score-button,
