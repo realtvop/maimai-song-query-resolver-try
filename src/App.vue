@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { loadFullMetadata } from "maimai_music_metadata";
 import type { Music, MusicMetadata, MusicDifficultyID } from "maimai_music_metadata";
 import {
+  buildNoteDesignerNames,
   parseSearchQuery,
   queryNeedsScoreData,
   searchCharts,
@@ -27,6 +28,7 @@ const searchQuery = ref("");
 const activeSearchQuery = ref("");
 const selectedMusic = ref<Music | null>(null);
 const dialogRef = ref<HTMLDialogElement | null>(null);
+const noteDesignerNames = ref<string[]>([]);
 const scoreData = ref<LoadedScoreData | null>(null);
 const scoreBackupError = ref<string | null>(null);
 const importingScoreBackup = ref(false);
@@ -34,6 +36,7 @@ const importingScoreBackup = ref(false);
 onMounted(async () => {
   try {
     const loadedMetadata = await loadFullMetadata();
+    noteDesignerNames.value = buildNoteDesignerNames(loadedMetadata.musics);
     metadata.value = loadedMetadata;
     restoreSavedScoreBackup(loadedMetadata);
   } catch (e) {
@@ -48,12 +51,12 @@ const filteredCharts = computed(() => {
   if (!metadata.value) return [];
   return searchCharts(activeSearchQuery.value, metadata.value.musics, metadata.value.versions, {
     scores: scoreData.value,
-  });
+  }, noteDesignerNames.value);
 });
 
 const parsedSearchQuery = computed(() => {
   if (!metadata.value || !activeSearchQuery.value.trim()) return null;
-  return parseSearchQuery(activeSearchQuery.value, metadata.value.versions);
+  return parseSearchQuery(activeSearchQuery.value, metadata.value.versions, noteDesignerNames.value);
 });
 
 const parsedSearchQueryJson = computed(() => {
@@ -70,7 +73,7 @@ const parsedSearchQueryBranchViews = computed(() =>
 
 const scoreFilterNeedsImport = computed(() => {
   if (!metadata.value || scoreData.value) return false;
-  return queryNeedsScoreData(activeSearchQuery.value, metadata.value.versions);
+  return queryNeedsScoreData(activeSearchQuery.value, metadata.value.versions, noteDesignerNames.value);
 });
 
 const scoreBackupStatus = computed(() => {
@@ -193,6 +196,7 @@ function getParseBranchFilterLabels(branch: ParsedSearchQueryBranch) {
   if (branch.musicIds.length) labels.push(formatParseListLabel("ID", branch.musicIds));
   if (branch.categories.length) labels.push(formatParseListLabel("分类", branch.categories));
   if (branch.versions.length) labels.push(formatParseListLabel("版本", branch.versions));
+  if (branch.noteDesigners.length) labels.push(formatParseListLabel("谱师", branch.noteDesigners));
   if (branch.difficulties.length) {
     labels.push(formatParseListLabel("难度", branch.difficulties.map(difficultyLabel)));
   }

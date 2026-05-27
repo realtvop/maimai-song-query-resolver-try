@@ -34,6 +34,7 @@ export interface ParsedSearchQueryBranch {
     musicIds: number[];
     categories: string[];
     versions: string[];
+    noteDesigners: string[];
     difficulties: MusicDifficultyID[];
     chartTypes: ChartType[];
     levels: string[];
@@ -62,6 +63,7 @@ interface ParsedQueryBranch {
     musicIds: Set<number>;
     categories: Set<string>;
     versions: Set<string>;
+    noteDesigners: Set<string>;
     difficulties: Set<MusicDifficultyID>;
     chartTypes: Set<ChartType>;
     levels: Set<string>;
@@ -102,6 +104,55 @@ const RANK_RATE_ORDER: RankRate[] = [
     "sssp",
 ];
 
+const NOTE_DESIGNER_ALIASES: Record<string, string[]> = {
+    "はっぴー": ["哈皮", "谱面leader"],
+    Jack: ["杰克", "王道谱谱师"],
+    "譜面-100号": ["谱面100号", "谱面一百号", "抽象大师"],
+    "チャン＠DP皆伝": ["DP皆传", "强哥"],
+    ニャイン: ["喵因", "喵九"],
+    "mai-Star": ["麦星", "麦斯达"],
+    "某S氏": ["某S", "S氏"],
+    "ロシェ＠ペンギン": ["企鹅", "罗谢企鹅", "企鹅哥"],
+    "Techno Kitchen": ["技术厨房", "科技厨房", "TK"],
+    rioN: ["里昂"],
+    "Revo@LC": ["Revo"],
+    ぴちネコ: ["皮奇猫", "猫", "猫猫"],
+    しろいろ: ["白色"],
+    "如月 ゆかり": ["如月由香里", "如月缘"],
+    "Moon Strix": ["月鸮", "月猫头鹰"],
+    玉子豆腐: ["玉子豆腐", "鸡蛋豆腐"],
+    LabiLabi: ["拉比拉比"],
+    小鳥遊さん: ["小鸟游", "小鸟游桑"],
+    ものくろっく: ["单色钟", "黑白钟"],
+    すきやき奉行: ["寿喜烧奉行", "寿喜烧"],
+    サファ太: ["萨法太", "翠"],
+    華火職人: ["花火职人", "烟花职人"],
+    シチミヘルツ: ["七味赫兹", "7.3Hz", "7.3GHz"],
+    うさぎランドリー: ["兔子洗衣房", "兔子洗衣店"],
+    アマリリス: ["孤挺花", "朱顶红", "花"],
+    群青リコリス: ["群青石蒜", "群青彼岸花"],
+    隅田川星人: ["隅田川星人", "川哥"],
+    アミノハバキリ: ["氨基羽羽斩", "氨基羽斩"],
+    Redarrow: ["红箭"],
+    翠楼屋: ["翠楼屋", "太"],
+    あまくちジンジャー: ["甜口姜", "甜姜"],
+    じゃこレモン: ["小鱼柠檬", "杂鱼柠檬"],
+    カマボコ君: ["鱼糕君", "板鱼君"],
+    メロンポップ: ["蜜瓜泡泡", "甜瓜汽水", "瓜泡"],
+    みそかつ侍: ["味噌炸猪排武士", "味噌猪排武士"],
+    鳩ホルダー: ["鸽子Holder", "鸽子持有者", "鸽哥"],
+    "rintaro soma": ["rintaro", "soma"],
+    Luxizhel: ["露西儿", "露西尔", "路西泽尔", "with U"],
+    Ruby: ["鲁比", "红宝石"],
+    "PG-NAKAGAWA": ["PG中川", "中川"],
+    ミニミライト: ["迷你米光", "迷你灯"],
+    "りんご Full Set": ["苹果Full Set", "苹果全套"],
+    きょむりん: ["虚无凛", "虚无林"],
+    まぐランド: ["马古乐园", "金枪鱼乐园"],
+    せめんともり: ["水泥森林", "水泥森"],
+    畳返し: ["掀榻榻米", "榻榻米返"],
+};
+
 function normalizeText(text: string): string {
     return sify(text)
         .toLowerCase()
@@ -116,6 +167,14 @@ function addAliasToken(
     apply: (parsed: ParsedQueryBranch) => void,
 ) {
     tokens.push({ raw: normalizeText(raw), apply });
+}
+
+function addNoteDesignerToken(tokens: AliasToken[], raw: string, noteDesigner: string) {
+    addAliasToken(tokens, raw, p => p.noteDesigners.add(noteDesigner));
+}
+
+function getChartNoteDesigner(chart: Chart): string {
+    return typeof chart.noteDesigner === "string" ? chart.noteDesigner.trim() : "";
 }
 
 function setMinByOrder<T>(
@@ -143,7 +202,22 @@ function setMinDxScoreTier(branch: ParsedQueryBranch, tier: number) {
     branch.minDxScoreTier = Math.max(branch.minDxScoreTier ?? 0, tier);
 }
 
-function buildTokens(versions: Version[]) {
+export function buildNoteDesignerNames(musics: Music[]): string[] {
+    const names = new Set<string>();
+
+    for (const music of musics) {
+        for (const chart of music.charts) {
+            const name = getChartNoteDesigner(chart);
+            if (name) {
+                names.add(name);
+            }
+        }
+    }
+
+    return sortedStrings(names);
+}
+
+function buildTokens(versions: Version[], noteDesignerNames: string[]) {
     const tokens: AliasToken[] = [];
 
     // 难度。注意长词优先，所以“紫谱”要比“紫”更优先。
@@ -278,6 +352,24 @@ function buildTokens(versions: Version[]) {
         }
     }
 
+    // 谱师：先收集当前 metadata 中真实出现过的名字，再挂上本地别名。
+    for (const noteDesigner of noteDesignerNames) {
+        addNoteDesignerToken(tokens, noteDesigner, noteDesigner);
+    }
+
+    const noteDesignerByNormalizedName = new Map(
+        noteDesignerNames.map(noteDesigner => [normalizeText(noteDesigner), noteDesigner]),
+    );
+
+    for (const [name, aliases] of Object.entries(NOTE_DESIGNER_ALIASES)) {
+        const noteDesigner = noteDesignerByNormalizedName.get(normalizeText(name));
+        if (!noteDesigner) continue;
+
+        for (const alias of aliases) {
+            addNoteDesignerToken(tokens, alias, noteDesigner);
+        }
+    }
+
     // 长词优先，避免“紫谱”被“紫”抢走。
     tokens.sort((a, b) => b.raw.length - a.raw.length);
 
@@ -289,6 +381,7 @@ function createEmptyParsedQueryBranch(): ParsedQueryBranch {
         musicIds: new Set(),
         categories: new Set(),
         versions: new Set(),
+        noteDesigners: new Set(),
         difficulties: new Set(),
         chartTypes: new Set(),
         levels: new Set(),
@@ -300,6 +393,7 @@ function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
         musicIds: new Set(branch.musicIds),
         categories: new Set(branch.categories),
         versions: new Set(branch.versions),
+        noteDesigners: new Set(branch.noteDesigners),
         difficulties: new Set(branch.difficulties),
         chartTypes: new Set(branch.chartTypes),
         levels: new Set(branch.levels),
@@ -318,6 +412,7 @@ function branchKey(branch: ParsedQueryBranch): string {
         musicIds: [...branch.musicIds].sort((a, b) => a - b),
         categories: [...branch.categories].sort(),
         versions: [...branch.versions].sort(),
+        noteDesigners: [...branch.noteDesigners].sort(),
         difficulties: [...branch.difficulties].sort((a, b) => a - b),
         chartTypes: [...branch.chartTypes].sort(),
         levels: [...branch.levels].sort(),
@@ -362,6 +457,7 @@ function hasChartFilters(branch: ParsedQueryBranch): boolean {
         branch.difficulties.size > 0 ||
         branch.levels.size > 0 ||
         branch.versions.size > 0 ||
+        branch.noteDesigners.size > 0 ||
         branch.minInternalLevel !== undefined ||
         branch.maxInternalLevel !== undefined ||
         hasScoreFilters(branch)
@@ -397,13 +493,17 @@ function sortedStrings<T extends string>(values: Set<T>): T[] {
     return [...values].sort((a, b) => a.localeCompare(b));
 }
 
-function parseQuery(query: string, versions: Version[]): ParsedQuery {
+function parseQuery(
+    query: string,
+    versions: Version[],
+    noteDesignerNames: string[] = [],
+): ParsedQuery {
     let rest = normalizeText(query);
     const parsed: ParsedQuery = {
         keyword: "",
         branches: [createEmptyParsedQueryBranch()],
     };
-    const tokens = buildTokens(versions);
+    const tokens = buildTokens(versions, noteDesignerNames);
 
     // 1. 识别固定词典 token
     for (const group of groupTokensByRaw(tokens)) {
@@ -482,8 +582,12 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
     return parsed;
 }
 
-export function parseSearchQuery(query: string, versions: Version[]): ParsedSearchQuery {
-    const parsed = parseQuery(query, versions);
+export function parseSearchQuery(
+    query: string,
+    versions: Version[],
+    noteDesignerNames: string[] = [],
+): ParsedSearchQuery {
+    const parsed = parseQuery(query, versions, noteDesignerNames);
 
     return {
         query,
@@ -493,6 +597,7 @@ export function parseSearchQuery(query: string, versions: Version[]): ParsedSear
             musicIds: sortedNumbers(branch.musicIds),
             categories: sortedStrings(branch.categories),
             versions: sortedStrings(branch.versions),
+            noteDesigners: sortedStrings(branch.noteDesigners),
             difficulties: sortedNumbers(branch.difficulties),
             chartTypes: sortedStrings(branch.chartTypes),
             levels: sortedStrings(branch.levels),
@@ -509,8 +614,12 @@ export function parseSearchQuery(query: string, versions: Version[]): ParsedSear
     };
 }
 
-export function queryNeedsScoreData(query: string, versions: Version[]): boolean {
-    const parsed = parseQuery(query, versions);
+export function queryNeedsScoreData(
+    query: string,
+    versions: Version[],
+    noteDesignerNames: string[] = [],
+): boolean {
+    const parsed = parseQuery(query, versions, noteDesignerNames);
     return parsed.branches.some(hasScoreFilters);
 }
 
@@ -531,6 +640,13 @@ function chartMatches(chart: Music["charts"][number], branch: ParsedQueryBranch)
         if (!chart.version || !branch.versions.has(chart.version)) {
             return false;
         }
+    }
+
+    if (
+        branch.noteDesigners.size > 0 &&
+        !branch.noteDesigners.has(getChartNoteDesigner(chart))
+    ) {
+        return false;
     }
 
     if (
@@ -649,8 +765,9 @@ export function searchMusic(
     query: string,
     musics: Music[],
     versions: Version[],
+    noteDesignerNames: string[] = buildNoteDesignerNames(musics),
 ): Music[] {
-    const parsed = parseQuery(query, versions);
+    const parsed = parseQuery(query, versions, noteDesignerNames);
 
     const results = musics
         .map(music => {
@@ -705,8 +822,9 @@ export function searchCharts(
     musics: Music[],
     versions: Version[],
     options?: SearchOptions,
+    noteDesignerNames: string[] = buildNoteDesignerNames(musics),
 ): ChartSearchResult[] {
-    const parsed = parseQuery(query, versions);
+    const parsed = parseQuery(query, versions, noteDesignerNames);
     const results: ChartSearchResult[] = [];
     const seen = new Set<string>();
 
