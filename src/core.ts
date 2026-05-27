@@ -364,6 +364,7 @@ function buildTokens(versions: Version[], noteDesignerNames: string[]) {
 
     // 谱师：先收集当前 metadata 中真实出现过的名字，再挂上本地别名。
     for (const noteDesigner of noteDesignerNames) {
+        if (noteDesigner.trim() === "" || noteDesigner.trim() === "-") continue;
         addNoteDesignerToken(tokens, noteDesigner, noteDesigner);
     }
 
@@ -563,19 +564,7 @@ function parseQuery(
         return "";
     });
 
-    // 3. 识别等级：12 / 12+ / 14+
-    // 注意：这里是显示等级，不把 12+ 当 12.5。
-    rest = rest.replace(/(?:^|[^a-z0-9])((?:1[0-5]|[1-9])\+?)(?=$|[^a-z0-9])/g, full => {
-        const level = full.match(/(?:1[0-5]|[1-9])\+?/)?.[0];
-        if (level) {
-            for (const branch of parsed.branches) {
-                branch.levels.add(level);
-            }
-        }
-        return "";
-    });
-
-    // 4. 识别内部定数范围，比如 ds>=13.7 / 定数13.6 / ra14.2
+    // 3. 识别内部定数范围，比如 ds>=13.7 / 定数13.6 / ra14.2
     rest = rest.replace(/(?:ds|定数|internal)(>=|<=|>|<|=)?(\d+(?:\.\d+)?)/g, (_, op: string | undefined, rawValue: string) => {
         const value = Number(rawValue);
         if (!Number.isFinite(value)) return "";
@@ -600,7 +589,71 @@ function parseQuery(
         return "";
     });
 
-    // 5. 清掉旧查询里可能出现但暂不支持的 b 数字条件，避免污染 keyword。
+    // 4. 识别直接定数和定数范围，如 13.4, 13.1-13.4, 13.1-.4, 13.1,13.2,13.4
+    const itemPattern = `(?:\\d+(?:\\.\\d+)?-(?:\\d+(?:\\.\\d+)?|\\.\\d+)|\\d+\\.\\d+)`;
+    const listRegex = new RegExp(`(?<![a-zA-Z0-9.])(${itemPattern}(?:,${itemPattern})*)(?![a-zA-Z0-9.])`, "g");
+
+    rest = rest.replace(listRegex, (matchedString) => {
+        // 必须包含点号，避免与不含点号的等级混淆
+        if (!matchedString.includes(".")) {
+            return matchedString;
+        }
+
+        const items = matchedString.split(",");
+        const targets: { min: number; max: number }[] = [];
+
+        for (const item of items) {
+            if (item.includes("-")) {
+                const parts = item.split("-");
+                const left = parts[0];
+                const right = parts[1];
+                const leftVal = parseFloat(left);
+                let rightVal: number;
+                if (right.startsWith(".")) {
+                    const integerPart = left.split(".")[0];
+                    rightVal = parseFloat(integerPart + right);
+                } else {
+                    rightVal = parseFloat(right);
+                }
+                targets.push({
+                    min: Math.min(leftVal, rightVal),
+                    max: Math.max(leftVal, rightVal),
+                });
+            } else {
+                const val = parseFloat(item);
+                targets.push({ min: val, max: val });
+            }
+        }
+
+        if (targets.length > 0) {
+            const nextBranches: ParsedQueryBranch[] = [];
+            for (const branch of parsed.branches) {
+                for (const target of targets) {
+                    const nextBranch = cloneParsedQueryBranch(branch);
+                    nextBranch.minInternalLevel = target.min;
+                    nextBranch.maxInternalLevel = target.max;
+                    nextBranches.push(nextBranch);
+                }
+            }
+            parsed.branches = dedupeBranches(nextBranches);
+        }
+
+        return "";
+    });
+
+    // 5. 识别等级：12 / 12+ / 14+
+    // 注意：这里是显示等级，不把 12+ 当 12.5。
+    rest = rest.replace(/(?:^|[^a-z0-9])((?:1[0-5]|[1-9])\+?)(?=$|[^a-z0-9])/g, full => {
+        const level = full.match(/(?:1[0-5]|[1-9])\+?/)?.[0];
+        if (level) {
+            for (const branch of parsed.branches) {
+                branch.levels.add(level);
+            }
+        }
+        return "";
+    });
+
+    // 6. 清掉旧查询里可能出现但暂不支持的 b 数字条件，避免污染 keyword。
     rest = rest.replace(/(?:ap\+|ap|fc\+|fcp|fc|b\d{1,3})/g, "");
 
     parsed.keyword = rest;
