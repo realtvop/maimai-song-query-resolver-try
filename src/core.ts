@@ -164,12 +164,21 @@ function normalizeText(text: string): string {
         .replace(/[‐-‒–—―]/g, "-");
 }
 
+function normalizeTextWithSpaces(text: string): string {
+    return sify(text)
+        .toLowerCase()
+        .normalize("NFKC")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/[‐-‒–—―]/g, "-");
+}
+
 function addAliasToken(
     tokens: AliasToken[],
     raw: string,
     apply: (parsed: ParsedQueryBranch) => void,
 ) {
-    tokens.push({ raw: normalizeText(raw), apply });
+    tokens.push({ raw: normalizeTextWithSpaces(raw), apply });
 }
 
 function addNoteDesignerToken(tokens: AliasToken[], raw: string, noteDesigner: string) {
@@ -524,7 +533,7 @@ function parseQuery(
     versions: Version[],
     noteDesignerNames: string[] = [],
 ): ParsedQuery {
-    let rest = normalizeText(query);
+    let rest = normalizeTextWithSpaces(query);
     const parsed: ParsedQuery = {
         keyword: "",
         branches: [createEmptyParsedQueryBranch()],
@@ -535,7 +544,7 @@ function parseQuery(
     for (const group of groupTokensByRaw(tokens)) {
         const raw = group[0].raw;
 
-        let pattern = escapeRegExp(raw);
+        let pattern = escapeRegExp(raw).replace(/ /g, "\\s*");
         if (/^[a-z]/.test(raw)) {
             pattern = `(?<![a-z])${pattern}`;
         }
@@ -560,8 +569,8 @@ function parseQuery(
         }
     }
 
-    // 2. 识别曲目 ID：id11451 / id8
-    rest = rest.replace(/id(\d+)/g, (_, rawId: string) => {
+    // 2. 识别曲目 ID：id11451 / id 8
+    rest = rest.replace(/id\s*(\d+)/g, (_, rawId: string) => {
         const id = Number(rawId);
         if (!Number.isSafeInteger(id)) return "";
 
@@ -572,8 +581,8 @@ function parseQuery(
         return "";
     });
 
-    // 3. 识别内部定数范围，比如 ds>=13.7 / 定数13.6 / ra14.2
-    rest = rest.replace(/(?:ds|定数|internal)(>=|<=|>|<|=)?(\d+(?:\.\d+)?)/g, (_, op: string | undefined, rawValue: string) => {
+    // 3. 识别内部定数范围，比如 ds>=13.7 / ds >= 13.7
+    rest = rest.replace(/(?:ds|定数|internal)\s*(>=|<=|>|<|=)?\s*(\d+(?:\.\d+)?)/g, (_, op: string | undefined, rawValue: string) => {
         const value = Number(rawValue);
         if (!Number.isFinite(value)) return "";
 
@@ -598,8 +607,8 @@ function parseQuery(
     });
 
     // 4. 识别直接定数和定数范围，如 13.4, 13.1-13.4, 13.1-.4, 13.1,13.2,13.4
-    const itemPattern = `(?:\\d+(?:\\.\\d+)?-(?:\\d+(?:\\.\\d+)?|\\.\\d+)|\\d+\\.\\d+)`;
-    const listRegex = new RegExp(`(?<![0-9.])(${itemPattern}(?:,${itemPattern})*)(?![0-9.])`, "g");
+    const itemPattern = `(?:\\d+(?:\\.\\d+)?\\s*-\\s*(?:\\d+(?:\\.\\d+)?|\\.\\d+)|\\d+\\.\\d+)`;
+    const listRegex = new RegExp(`(?<![0-9.])(${itemPattern}(?:\\s*,\\s*${itemPattern})*)(?![0-9.])`, "g");
 
     rest = rest.replace(listRegex, (matchedString) => {
         // 必须包含点号，避免与不含点号的等级混淆
@@ -607,12 +616,12 @@ function parseQuery(
             return matchedString;
         }
 
-        const items = matchedString.split(",");
+        const items = matchedString.split(/\s*,\s*/);
         const targets: { min: number; max: number }[] = [];
 
         for (const item of items) {
             if (item.includes("-")) {
-                const parts = item.split("-");
+                const parts = item.split(/\s*-\s*/);
                 const left = parts[0];
                 const right = parts[1];
                 const leftVal = parseFloat(left);
@@ -663,6 +672,9 @@ function parseQuery(
 
     // 6. 清掉旧查询里可能出现但暂不支持的 b 数字条件，避免污染 keyword。
     rest = rest.replace(/(?:ap\+|ap|fc\+|fcp|fc|b\d{1,3})/g, "");
+
+    // Trim and clean spaces
+    rest = rest.trim().replace(/\s+/g, " ");
 
     parsed.keyword = rest;
 
