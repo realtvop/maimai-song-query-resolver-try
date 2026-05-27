@@ -344,7 +344,7 @@ function buildTokens(versions: Version[], noteDesignerNames: string[]) {
 
         if (version.word) {
             addAliasToken(tokens, version.word, p => p.versions.add(version.version));
-            addAliasToken(tokens, version.word, p => p.versions.add(`${version.version}代`));
+            addAliasToken(tokens, `${version.word}代`, p => p.versions.add(version.version));
         }
 
         // 例如国服年份版名。如果你不想支持可以删掉。
