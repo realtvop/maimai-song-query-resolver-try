@@ -2,6 +2,8 @@ import type { Music, MusicDifficultyID, Version } from "maimai_music_metadata";
 
 type ChartType = "sd" | "dx" | "utage";
 type Chart = Music["charts"][number];
+type CnVersionValue = string | number;
+type ChartWithCnVersionOverride = Chart & { cnVerOverride?: CnVersionValue | null };
 
 export type ComboStatus = "" | "fc" | "fcp" | "ap" | "app";
 export type SyncStatus = "" | "sync" | "fs" | "fsp" | "fsd" | "fsdp";
@@ -50,6 +52,7 @@ export interface LoadedScoreRecord {
     chartType: ChartType;
     difficulty: MusicDifficultyID;
     version: string | null;
+    cnVersion: string | null;
     achievement: number;
     comboStatus: ComboStatus;
     syncStatus: SyncStatus;
@@ -175,38 +178,71 @@ function calculateRating(achievement: number, internalLevel: number): number {
     return Math.floor((coefficient * internalLevel * Math.min(100.5, achievement)) / 100);
 }
 
-function createVersionReleaseDateMap(versions: Version[]): Map<string, string> {
-    return new Map(
-        versions
-            .filter(version => version.releaseDate)
-            .map(version => [version.version, version.releaseDate]),
-    );
-}
-
 function isB50Candidate(record: LoadedScoreRecord): boolean {
     return record.chartType !== "utage" && record.difficulty !== 10;
 }
 
-function findLatestScoredVersionName(
-    records: LoadedScoreRecord[],
-    versionReleaseDates: Map<string, string>,
-): string | null {
-    let latestVersionName: string | null = null;
-    let latestReleaseDate: string | null = null;
+function normalizeCnVersionValue(value: unknown): string | null {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return String(value);
+    }
 
-    for (const record of records) {
-        if (!isB50Candidate(record) || !record.version) continue;
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed ? trimmed : null;
+    }
 
-        const releaseDate = versionReleaseDates.get(record.version);
-        if (!releaseDate) continue;
+    return null;
+}
 
-        if (latestReleaseDate === null || releaseDate.localeCompare(latestReleaseDate) > 0) {
-            latestVersionName = record.version;
-            latestReleaseDate = releaseDate;
+function getChartCnVersion(chart: Chart): string | null {
+    const chartWithCnVersion = chart as ChartWithCnVersionOverride;
+    const isAvailableInChina = (chart.avalibleRegions as readonly string[]).includes("cn");
+
+    return (
+        normalizeCnVersionValue(chartWithCnVersion.cnVerOverride) ??
+        normalizeCnVersionValue(chart.regionVersionOverride?.cn) ??
+        (isAvailableInChina ? normalizeCnVersionValue(chart.version) : null)
+    );
+}
+
+function getCnVersionRank(cnVersion: string): number {
+    const numericVersion = Number(cnVersion);
+    if (Number.isFinite(numericVersion)) return numericVersion;
+
+    const year = cnVersion.match(/(?:19|20)\d{2}/)?.[0];
+    if (year) return Number(year);
+
+    return 0;
+}
+
+function isSameCnVersion(a: string | null, b: string | null): boolean {
+    if (a === null || b === null) return false;
+    if (a === b) return true;
+
+    const rankA = getCnVersionRank(a);
+    const rankB = getCnVersionRank(b);
+    return rankA > 0 && rankA === rankB;
+}
+
+function findLatestCnVersion(musics: Music[]): string | null {
+    let latestVersion: string | null = null;
+    let latestRank = 0;
+
+    for (const music of musics) {
+        for (const chart of music.charts) {
+            const cnVersion = getChartCnVersion(chart);
+            if (cnVersion === null) continue;
+
+            const rank = getCnVersionRank(cnVersion);
+            if (rank > latestRank) {
+                latestVersion = cnVersion;
+                latestRank = rank;
+            }
         }
     }
 
-    return latestVersionName;
+    return latestVersion;
 }
 
 function indexCharts(musics: Music[]) {
@@ -270,11 +306,11 @@ function sortB50Records(records: LoadedScoreRecord[]): LoadedScoreRecord[] {
 export function parseSaltNetBackup(
     raw: unknown,
     musics: Music[],
-    versions: Version[],
+    _versions: Version[],
 ): LoadedScoreData {
     const backup = parseBackup(raw);
     const chartMap = indexCharts(musics);
-    const versionReleaseDates = createVersionReleaseDateMap(versions);
+    const latestCnVersion = findLatestCnVersion(musics);
     const records: LoadedScoreRecord[] = [];
     let unmatchedRecords = 0;
 
@@ -305,6 +341,7 @@ export function parseSaltNetBackup(
             chartType,
             difficulty,
             version: match.chart.version,
+            cnVersion: getChartCnVersion(match.chart),
             achievement,
             comboStatus: getIndexValue(COMBO_STATUS_ORDER, detail.comboStatus, ""),
             syncStatus: getIndexValue(SYNC_STATUS_ORDER, detail.syncStatus, ""),
@@ -322,10 +359,8 @@ export function parseSaltNetBackup(
         records.push(record);
     }
 
-    const latestVersionName = findLatestScoredVersionName(records, versionReleaseDates);
-
     for (const record of records) {
-        record.isNew = latestVersionName !== null && record.version === latestVersionName;
+        record.isNew = isSameCnVersion(record.cnVersion, latestCnVersion);
     }
 
     const b50Candidates = records.filter(isB50Candidate);
