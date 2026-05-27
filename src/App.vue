@@ -212,6 +212,8 @@ function getParseBranchFilterLabels(branch: ParsedSearchQueryBranch) {
   if (branch.minComboStatus) labels.push(`Combo >= ${formatComboStatus(branch.minComboStatus)}`);
   if (branch.minSyncStatus) labels.push(`Sync >= ${formatSyncStatus(branch.minSyncStatus)}`);
   if (branch.minDxScoreTier !== undefined) labels.push(`DX 星数 >= ${branch.minDxScoreTier}`);
+  if (branch.b50Bucket === "older") labels.push("B35");
+  if (branch.b50Bucket === "newer") labels.push("B15");
   if (branch.b50Only) labels.push("B50");
 
   return labels;

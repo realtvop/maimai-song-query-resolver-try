@@ -2,6 +2,7 @@ import { sify } from "chinese-conv";
 import type { Music, Version, MusicDifficultyID } from "maimai_music_metadata";
 import {
     getChartScoreKey,
+    type B50Bucket,
     type ComboStatus,
     type LoadedScoreData,
     type LoadedScoreRecord,
@@ -45,6 +46,7 @@ export interface ParsedSearchQueryBranch {
     minRankRate?: RankRate;
     minDxScoreTier?: number;
     b50Only: boolean;
+    b50Bucket?: B50Bucket;
     hasChartFilters: boolean;
     hasScoreFilters: boolean;
 }
@@ -74,6 +76,7 @@ interface ParsedQueryBranch {
     minRankRate?: RankRate;
     minDxScoreTier?: number;
     b50Only?: boolean;
+    b50Bucket?: B50Bucket;
 }
 
 const Difficulty = {
@@ -292,6 +295,12 @@ function buildTokens(versions: Version[], noteDesignerNames: string[]) {
     addAliasToken(tokens, "b50", p => {
         p.b50Only = true;
     });
+    addAliasToken(tokens, "b35", p => {
+        p.b50Bucket = "older";
+    });
+    addAliasToken(tokens, "b15", p => {
+        p.b50Bucket = "newer";
+    });
 
     const starAliases: Array<[string, number]> = [
         ["一", 1],
@@ -405,6 +414,7 @@ function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
         minRankRate: branch.minRankRate,
         minDxScoreTier: branch.minDxScoreTier,
         b50Only: branch.b50Only,
+        b50Bucket: branch.b50Bucket,
     };
 }
 
@@ -424,6 +434,7 @@ function branchKey(branch: ParsedQueryBranch): string {
         minRankRate: branch.minRankRate,
         minDxScoreTier: branch.minDxScoreTier,
         b50Only: branch.b50Only,
+        b50Bucket: branch.b50Bucket,
     });
 }
 
@@ -433,7 +444,8 @@ function hasScoreFilters(branch: ParsedQueryBranch): boolean {
         branch.minSyncStatus !== undefined ||
         branch.minRankRate !== undefined ||
         branch.minDxScoreTier !== undefined ||
-        branch.b50Only === true
+        branch.b50Only === true ||
+        branch.b50Bucket !== undefined
     );
 }
 
@@ -609,6 +621,7 @@ export function parseSearchQuery(
             minRankRate: branch.minRankRate,
             minDxScoreTier: branch.minDxScoreTier,
             b50Only: branch.b50Only === true,
+            b50Bucket: branch.b50Bucket,
             hasChartFilters: hasChartFilters(branch),
             hasScoreFilters: hasScoreFilters(branch),
         })),
@@ -691,6 +704,10 @@ function chartScoreMatches(
     if (!record) return false;
 
     if (branch.b50Only && !record.isB50) {
+        return false;
+    }
+
+    if (branch.b50Bucket !== undefined && record.b50Bucket !== branch.b50Bucket) {
         return false;
     }
 

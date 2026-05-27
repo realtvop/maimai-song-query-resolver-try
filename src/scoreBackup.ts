@@ -5,6 +5,7 @@ type Chart = Music["charts"][number];
 
 export type ComboStatus = "" | "fc" | "fcp" | "ap" | "app";
 export type SyncStatus = "" | "sync" | "fs" | "fsp" | "fsd" | "fsdp";
+export type B50Bucket = "older" | "newer";
 export type RankRate =
     | "d"
     | "c"
@@ -48,6 +49,7 @@ export interface LoadedScoreRecord {
     musicId: number;
     chartType: ChartType;
     difficulty: MusicDifficultyID;
+    version: string | null;
     achievement: number;
     comboStatus: ComboStatus;
     syncStatus: SyncStatus;
@@ -58,6 +60,7 @@ export interface LoadedScoreRecord {
     deluxeRating: number;
     playCount: number;
     isB50: boolean;
+    b50Bucket: B50Bucket | null;
     isNew: boolean;
 }
 
@@ -172,14 +175,38 @@ function calculateRating(achievement: number, internalLevel: number): number {
     return Math.floor((coefficient * internalLevel * Math.min(100.5, achievement)) / 100);
 }
 
-function findLatestVersionName(versions: Version[]): string | null {
-    return [...versions]
-        .filter(version => version.releaseDate)
-        .sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0]?.version ?? null;
+function createVersionReleaseDateMap(versions: Version[]): Map<string, string> {
+    return new Map(
+        versions
+            .filter(version => version.releaseDate)
+            .map(version => [version.version, version.releaseDate]),
+    );
 }
 
-function isNewChart(chart: Chart, latestVersionName: string | null): boolean {
-    return latestVersionName !== null && chart.version === latestVersionName;
+function isB50Candidate(record: LoadedScoreRecord): boolean {
+    return record.chartType !== "utage" && record.difficulty !== 10;
+}
+
+function findLatestScoredVersionName(
+    records: LoadedScoreRecord[],
+    versionReleaseDates: Map<string, string>,
+): string | null {
+    let latestVersionName: string | null = null;
+    let latestReleaseDate: string | null = null;
+
+    for (const record of records) {
+        if (!isB50Candidate(record) || !record.version) continue;
+
+        const releaseDate = versionReleaseDates.get(record.version);
+        if (!releaseDate) continue;
+
+        if (latestReleaseDate === null || releaseDate.localeCompare(latestReleaseDate) > 0) {
+            latestVersionName = record.version;
+            latestReleaseDate = releaseDate;
+        }
+    }
+
+    return latestVersionName;
 }
 
 function indexCharts(musics: Music[]) {
@@ -247,7 +274,7 @@ export function parseSaltNetBackup(
 ): LoadedScoreData {
     const backup = parseBackup(raw);
     const chartMap = indexCharts(musics);
-    const latestVersionName = findLatestVersionName(versions);
+    const versionReleaseDates = createVersionReleaseDateMap(versions);
     const records: LoadedScoreRecord[] = [];
     let unmatchedRecords = 0;
 
@@ -277,6 +304,7 @@ export function parseSaltNetBackup(
             musicId,
             chartType,
             difficulty,
+            version: match.chart.version,
             achievement,
             comboStatus: getIndexValue(COMBO_STATUS_ORDER, detail.comboStatus, ""),
             syncStatus: getIndexValue(SYNC_STATUS_ORDER, detail.syncStatus, ""),
@@ -287,15 +315,31 @@ export function parseSaltNetBackup(
             deluxeRating: calculateRating(achievement, match.chart.internalLevel),
             playCount: detail.playCount,
             isB50: false,
-            isNew: isNewChart(match.chart, latestVersionName),
+            b50Bucket: null,
+            isNew: false,
         };
 
         records.push(record);
     }
 
-    const newer = sortB50Records(records.filter(record => record.isNew)).slice(0, 15);
-    const older = sortB50Records(records.filter(record => !record.isNew)).slice(0, 35);
+    const latestVersionName = findLatestScoredVersionName(records, versionReleaseDates);
+
+    for (const record of records) {
+        record.isNew = latestVersionName !== null && record.version === latestVersionName;
+    }
+
+    const b50Candidates = records.filter(isB50Candidate);
+    const newer = sortB50Records(b50Candidates.filter(record => record.isNew)).slice(0, 15);
+    const older = sortB50Records(b50Candidates.filter(record => !record.isNew)).slice(0, 35);
     const b50Keys = new Set([...newer, ...older].map(record => record.key));
+
+    for (const record of newer) {
+        record.b50Bucket = "newer";
+    }
+
+    for (const record of older) {
+        record.b50Bucket = "older";
+    }
 
     for (const record of records) {
         record.isB50 = b50Keys.has(record.key);
