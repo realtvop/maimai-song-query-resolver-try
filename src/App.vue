@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted }from "vue";
+import { ref, computed, onMounted } from "vue";
 import { loadFullMetadata } from "maimai_music_metadata";
+import type { MusicMetadata } from "maimai_music_metadata";
+import { searchMusic } from "./core";
 
-const metadata = ref<any>(null);
+const metadata = ref<MusicMetadata | null>(null);
 const loading = ref(true);
 const error = ref<any>(null);
+const searchQuery = ref("");
 
 onMounted(async () => {
   try {
@@ -16,15 +19,30 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+const filteredMusics = computed(() => {
+  if (!metadata.value) return [];
+  return searchMusic(searchQuery.value, metadata.value.musics);
+});
 </script>
 
 <template>
   <div class="container">
     <h1>maimai song query resolver (try)</h1>
+    
     <div v-if="loading">Loading metadata...</div>
     <div v-else-if="error">Error: {{ error }}</div>
     <div v-else>
-      <pre>{{ JSON.stringify(metadata, null, 2) }}</pre>
+      <div class="search-bar">
+        <input 
+          type="text" 
+          v-model="searchQuery" 
+          placeholder="Search by song name, artist, alias, or ID..." 
+          class="search-input"
+        />
+        <span class="count-badge">Found: {{ filteredMusics.length }}</span>
+      </div>
+      <pre>{{ JSON.stringify(filteredMusics, null, 2) }}</pre>
     </div>
   </div>
 </template>
@@ -33,6 +51,23 @@ onMounted(async () => {
 .container {
   padding: 2rem;
   font-family: sans-serif;
+}
+
+.search-bar {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.search-input {
+  padding: 0.5rem;
+  font-size: 1rem;
+  width: 300px;
+}
+
+.count-badge {
+  font-weight: bold;
 }
 
 pre {
