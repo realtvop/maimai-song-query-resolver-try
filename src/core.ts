@@ -1,6 +1,13 @@
 import type { Music, Version, MusicDifficultyID } from "maimai_music_metadata";
 
 type ChartType = "sd" | "dx" | "utage";
+type Chart = Music["charts"][number];
+
+export interface ChartSearchResult {
+    music: Music;
+    chart: Chart;
+    score: number;
+}
 
 type AliasToken = {
     raw: string;
@@ -337,6 +344,12 @@ function chartMatches(chart: Music["charts"][number], branch: ParsedQueryBranch)
     return true;
 }
 
+function chartMatchesWithoutDifficulty(chart: Chart, branch: ParsedQueryBranch): boolean {
+    const branchWithoutDifficulty = cloneParsedQueryBranch(branch);
+    branchWithoutDifficulty.difficulties.clear();
+    return chartMatches(chart, branchWithoutDifficulty);
+}
+
 function musicKeywordScore(music: Music, keyword: string): number {
     if (!keyword) return 1;
 
@@ -414,4 +427,68 @@ export function searchMusic(
         .map(item => item.music);
 
     return results;
+}
+
+function chartResultKey(result: ChartSearchResult): string {
+    return [
+        result.music.id,
+        result.chart.type,
+        result.chart.difficulty,
+        result.chart.version ?? "",
+        result.chart.level,
+    ].join(":");
+}
+
+export function searchCharts(
+    query: string,
+    musics: Music[],
+    versions: Version[],
+): ChartSearchResult[] {
+    const parsed = parseQuery(query, versions);
+    const results: ChartSearchResult[] = [];
+    const seen = new Set<string>();
+
+    for (const music of musics) {
+        const score = musicKeywordScore(music, parsed.keyword);
+
+        if (parsed.keyword && score <= 0) {
+            continue;
+        }
+
+        for (const branch of parsed.branches) {
+            if (branch.musicIds.size > 0 && !branch.musicIds.has(music.id)) {
+                continue;
+            }
+
+            if (branch.categories.size > 0 && !branch.categories.has(music.category)) {
+                continue;
+            }
+
+            const hasDifficultyFilter = branch.difficulties.size > 0;
+            const matchingCharts = music.charts.filter(chart =>
+                hasDifficultyFilter
+                    ? chartMatches(chart, branch)
+                    : chartMatchesWithoutDifficulty(chart, branch),
+            );
+
+            for (const chart of matchingCharts) {
+                const result = { music, chart, score };
+                const key = chartResultKey(result);
+
+                if (seen.has(key)) {
+                    continue;
+                }
+
+                seen.add(key);
+                results.push(result);
+            }
+        }
+    }
+
+    return results.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.music.id !== b.music.id) return a.music.id - b.music.id;
+        if (a.chart.type !== b.chart.type) return a.chart.type.localeCompare(b.chart.type);
+        return a.chart.difficulty - b.chart.difficulty;
+    });
 }
