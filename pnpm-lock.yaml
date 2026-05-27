@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      chinese-conv:
+        specifier: ^4.0.0
+        version: 4.0.0
       maimai_music_metadata:
         specifier: ^1.0.0
         version: 1.0.0
@@ -239,6 +242,10 @@ packages:
 
   alien-signals@3.2.1:
     resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
+
+  chinese-conv@4.0.0:
+    resolution: {integrity: sha512-PVBMzvv6CtX1cubaDXfxYscIdbOAHPuY/E2vnfJIzOACX+xIW4NRKRlNsZVI2p5KxGsXyUp7tVHfvQlqZ4yx/w==}
+    engines: {node: ^20.19.0 || >=22.12.0}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -644,6 +651,8 @@ snapshots:
       vue: 3.5.35(typescript@6.0.3)
 
   alien-signals@3.2.1: {}
+
+  chinese-conv@4.0.0: {}
 
   csstype@3.2.3: {}
 

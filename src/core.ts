@@ -1,3 +1,4 @@
+import { sify } from "chinese-conv";
 import type { Music, Version, MusicDifficultyID } from "maimai_music_metadata";
 
 type ChartType = "sd" | "dx" | "utage";
@@ -40,7 +41,7 @@ const Difficulty = {
 } as const satisfies Record<string, MusicDifficultyID>;
 
 function normalizeText(text: string): string {
-    return text
+    return sify(text)
         .toLowerCase()
         .normalize("NFKC")
         .replace(/\s+/g, "")
