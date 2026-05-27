@@ -283,7 +283,7 @@ function clearScoreBackup() {
             :disabled="importingScoreBackup"
             @change="handleScoreBackupFile"
           />
-          {{ importingScoreBackup ? "导入中..." : "导入成绩" }}
+          {{ importingScoreBackup ? "导入中..." : "导入 SaltNet 数据备份" }}
         </label>
         <span class="score-status" :class="{ loaded: scoreData }">{{ scoreBackupStatus }}</span>
         <button
