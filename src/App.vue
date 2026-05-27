@@ -22,7 +22,7 @@ onMounted(async () => {
 
 const filteredMusics = computed(() => {
   if (!metadata.value) return [];
-  return searchMusic(searchQuery.value, metadata.value.musics);
+  return searchMusic(searchQuery.value, metadata.value.musics, metadata.value.versions);
 });
 </script>
 
