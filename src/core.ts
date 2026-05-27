@@ -9,7 +9,7 @@ import {
     type SyncStatus,
 } from "./scoreBackup";
 
-type ChartType = "sd" | "dx" | "utage";
+export type ChartType = "sd" | "dx" | "utage";
 type Chart = Music["charts"][number];
 
 export interface ChartSearchResult {
@@ -21,6 +21,31 @@ export interface ChartSearchResult {
 
 export interface SearchOptions {
     scores?: LoadedScoreData | null;
+}
+
+export interface ParsedSearchQuery {
+    query: string;
+    normalizedQuery: string;
+    keyword: string;
+    branches: ParsedSearchQueryBranch[];
+}
+
+export interface ParsedSearchQueryBranch {
+    musicIds: number[];
+    categories: string[];
+    versions: string[];
+    difficulties: MusicDifficultyID[];
+    chartTypes: ChartType[];
+    levels: string[];
+    minInternalLevel?: number;
+    maxInternalLevel?: number;
+    minComboStatus?: ComboStatus;
+    minSyncStatus?: SyncStatus;
+    minRankRate?: RankRate;
+    minDxScoreTier?: number;
+    b50Only: boolean;
+    hasChartFilters: boolean;
+    hasScoreFilters: boolean;
 }
 
 type AliasToken = {
@@ -364,6 +389,14 @@ function normalizeMusicId(id: number): number {
     return id >= 10000 && id <= 99999 ? id % 10000 : id;
 }
 
+function sortedNumbers<T extends number>(values: Set<T>): T[] {
+    return [...values].sort((a, b) => a - b);
+}
+
+function sortedStrings<T extends string>(values: Set<T>): T[] {
+    return [...values].sort((a, b) => a.localeCompare(b));
+}
+
 function parseQuery(query: string, versions: Version[]): ParsedQuery {
     let rest = normalizeText(query);
     const parsed: ParsedQuery = {
@@ -447,6 +480,33 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
     parsed.keyword = rest;
 
     return parsed;
+}
+
+export function parseSearchQuery(query: string, versions: Version[]): ParsedSearchQuery {
+    const parsed = parseQuery(query, versions);
+
+    return {
+        query,
+        normalizedQuery: normalizeText(query),
+        keyword: parsed.keyword,
+        branches: parsed.branches.map(branch => ({
+            musicIds: sortedNumbers(branch.musicIds),
+            categories: sortedStrings(branch.categories),
+            versions: sortedStrings(branch.versions),
+            difficulties: sortedNumbers(branch.difficulties),
+            chartTypes: sortedStrings(branch.chartTypes),
+            levels: sortedStrings(branch.levels),
+            minInternalLevel: branch.minInternalLevel,
+            maxInternalLevel: branch.maxInternalLevel,
+            minComboStatus: branch.minComboStatus,
+            minSyncStatus: branch.minSyncStatus,
+            minRankRate: branch.minRankRate,
+            minDxScoreTier: branch.minDxScoreTier,
+            b50Only: branch.b50Only === true,
+            hasChartFilters: hasChartFilters(branch),
+            hasScoreFilters: hasScoreFilters(branch),
+        })),
+    };
 }
 
 export function queryNeedsScoreData(query: string, versions: Version[]): boolean {

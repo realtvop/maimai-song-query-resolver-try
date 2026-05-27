@@ -2,7 +2,13 @@
 import { ref, computed, onMounted } from "vue";
 import { loadFullMetadata } from "maimai_music_metadata";
 import type { Music, MusicMetadata, MusicDifficultyID } from "maimai_music_metadata";
-import { queryNeedsScoreData, searchCharts, type ChartSearchResult } from "./core";
+import {
+  parseSearchQuery,
+  queryNeedsScoreData,
+  searchCharts,
+  type ChartSearchResult,
+  type ParsedSearchQueryBranch,
+} from "./core";
 import {
   parseSaltNetBackup,
   type ComboStatus,
@@ -44,6 +50,23 @@ const filteredCharts = computed(() => {
     scores: scoreData.value,
   });
 });
+
+const parsedSearchQuery = computed(() => {
+  if (!metadata.value || !activeSearchQuery.value.trim()) return null;
+  return parseSearchQuery(activeSearchQuery.value, metadata.value.versions);
+});
+
+const parsedSearchQueryJson = computed(() => {
+  if (!parsedSearchQuery.value) return "";
+  return JSON.stringify(parsedSearchQuery.value, null, 2);
+});
+
+const parsedSearchQueryBranchViews = computed(() =>
+  parsedSearchQuery.value?.branches.map(branch => ({
+    branch,
+    filters: getParseBranchFilterLabels(branch),
+  })) ?? [],
+);
 
 const scoreFilterNeedsImport = computed(() => {
   if (!metadata.value || scoreData.value) return false;
@@ -143,6 +166,51 @@ function formatSyncStatus(status: SyncStatus) {
 
 function formatDxScoreTier(record: LoadedScoreRecord) {
   return `${record.dxScoreTier}星`;
+}
+
+function formatParsedValue(value: string) {
+  return value || "(empty)";
+}
+
+function formatParseListLabel(label: string, values: Array<string | number>) {
+  return `${label}: ${values.join(", ")}`;
+}
+
+function getInternalLevelFilterLabel(branch: ParsedSearchQueryBranch) {
+  const min = branch.minInternalLevel;
+  const max = branch.maxInternalLevel;
+
+  if (min === undefined && max === undefined) return null;
+  if (min !== undefined && max !== undefined && min === max) return `定数 = ${min}`;
+  if (min !== undefined && max !== undefined) return `定数 ${min} - ${max}`;
+  if (min !== undefined) return `定数 >= ${min}`;
+  return `定数 <= ${max}`;
+}
+
+function getParseBranchFilterLabels(branch: ParsedSearchQueryBranch) {
+  const labels: string[] = [];
+
+  if (branch.musicIds.length) labels.push(formatParseListLabel("ID", branch.musicIds));
+  if (branch.categories.length) labels.push(formatParseListLabel("分类", branch.categories));
+  if (branch.versions.length) labels.push(formatParseListLabel("版本", branch.versions));
+  if (branch.difficulties.length) {
+    labels.push(formatParseListLabel("难度", branch.difficulties.map(difficultyLabel)));
+  }
+  if (branch.chartTypes.length) {
+    labels.push(formatParseListLabel("谱面类型", branch.chartTypes.map(chartTypeLabel)));
+  }
+  if (branch.levels.length) labels.push(formatParseListLabel("等级", branch.levels));
+
+  const internalLevelLabel = getInternalLevelFilterLabel(branch);
+  if (internalLevelLabel) labels.push(internalLevelLabel);
+
+  if (branch.minRankRate) labels.push(`评级 >= ${formatRankRate(branch.minRankRate)}`);
+  if (branch.minComboStatus) labels.push(`Combo >= ${formatComboStatus(branch.minComboStatus)}`);
+  if (branch.minSyncStatus) labels.push(`Sync >= ${formatSyncStatus(branch.minSyncStatus)}`);
+  if (branch.minDxScoreTier !== undefined) labels.push(`DX 星数 >= ${branch.minDxScoreTier}`);
+  if (branch.b50Only) labels.push("B50");
+
+  return labels;
 }
 
 function difficultyClass(difficulty: MusicDifficultyID) {
@@ -329,6 +397,57 @@ function clearSearch() {
           清除成绩
         </button>
       </div>
+
+      <section
+        v-if="parsedSearchQuery"
+        class="parse-panel"
+        aria-label="搜索 query parse 结果"
+      >
+        <div class="parse-header">
+          <span class="parse-title">Query parse</span>
+          <code class="parse-source">{{ parsedSearchQuery.query }}</code>
+        </div>
+
+        <div class="parse-summary">
+          <span class="parse-field">
+            <span class="parse-label">keyword</span>
+            <code>{{ formatParsedValue(parsedSearchQuery.keyword) }}</code>
+          </span>
+          <span class="parse-field">
+            <span class="parse-label">normalized</span>
+            <code>{{ formatParsedValue(parsedSearchQuery.normalizedQuery) }}</code>
+          </span>
+          <span class="parse-field">
+            <span class="parse-label">branches</span>
+            <code>{{ parsedSearchQuery.branches.length }}</code>
+          </span>
+        </div>
+
+        <div class="parse-branches">
+          <div
+            v-for="({ branch, filters }, branchIndex) in parsedSearchQueryBranchViews"
+            :key="branchIndex"
+            class="parse-branch"
+          >
+            <span class="branch-title">Branch {{ branchIndex + 1 }}</span>
+            <span v-if="branch.hasChartFilters" class="parse-flag">chart</span>
+            <span v-if="branch.hasScoreFilters" class="parse-flag score">score</span>
+            <span
+              v-for="(filter, filterIndex) in filters"
+              :key="`${branchIndex}-${filterIndex}-${filter}`"
+              class="parse-chip"
+            >
+              {{ filter }}
+            </span>
+            <span v-if="filters.length === 0" class="parse-empty">无筛选</span>
+          </div>
+        </div>
+
+        <details class="parse-json">
+          <summary>JSON</summary>
+          <pre>{{ parsedSearchQueryJson }}</pre>
+        </details>
+      </section>
 
       <div v-if="scoreFilterNeedsImport || scoreBackupError" class="score-messages">
         <p v-if="scoreFilterNeedsImport" class="score-alert">
@@ -645,6 +764,149 @@ h1 {
   border-color: #9bc7a2;
   background: #f3fbf4;
   color: #265f31;
+}
+
+.parse-panel {
+  display: grid;
+  gap: 10px;
+  margin: -8px 0 20px;
+  padding: 12px;
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.parse-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.parse-title {
+  color: #171717;
+  font-size: 0.9rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.parse-source {
+  min-width: 0;
+  color: #404040;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.parse-summary,
+.parse-branch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.parse-field {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #d8d8d8;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #171717;
+}
+
+.parse-label {
+  color: #707070;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.parse-field code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.parse-branches {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.parse-branch {
+  padding-top: 8px;
+  border-top: 1px solid #e6e6e6;
+}
+
+.branch-title {
+  color: #404040;
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.parse-flag,
+.parse-chip,
+.parse-empty {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.parse-flag {
+  background: #171717;
+  color: #ffffff;
+}
+
+.parse-flag.score {
+  background: #265f31;
+}
+
+.parse-chip {
+  border: 1px solid #d8d8d8;
+  background: #ffffff;
+  color: #171717;
+}
+
+.parse-empty {
+  border: 1px dashed #cfcfcf;
+  color: #707070;
+}
+
+.parse-json {
+  padding-top: 2px;
+}
+
+.parse-json summary {
+  width: max-content;
+  cursor: pointer;
+  color: #404040;
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.parse-json pre {
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #e2e2e2;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #171717;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .score-messages {
