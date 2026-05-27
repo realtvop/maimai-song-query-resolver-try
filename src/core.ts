@@ -339,7 +339,7 @@ function musicKeywordScore(music: Music, keyword: string): number {
         if (f.length === 0) continue;
 
         // Check if length of matching part (k.length) is at least 3/4 of the alias length (f.length)
-        if (k.length * 4 < f.length * 3) {
+        if (k.length * 3 < f.length * 2) {
             continue;
         }
 
