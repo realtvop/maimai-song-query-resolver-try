@@ -211,6 +211,10 @@ function groupTokensByRaw(tokens: AliasToken[]): AliasToken[][] {
     return [...groups.values()];
 }
 
+function normalizeMusicId(id: number): number {
+    return id >= 10000 && id <= 99999 ? id % 10000 : id;
+}
+
 function parseQuery(query: string, versions: Version[]): ParsedQuery {
     let rest = normalizeText(query);
     const parsed: ParsedQuery = {
@@ -245,7 +249,7 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         if (!Number.isSafeInteger(id)) return "";
 
         for (const branch of parsed.branches) {
-            branch.musicIds.add(id);
+            branch.musicIds.add(normalizeMusicId(id));
         }
 
         return "";
