@@ -238,6 +238,14 @@ function buildTokens(versions: Version[], noteDesignerNames: string[]) {
     addAliasToken(tokens, "白", p => p.difficulties.add(Difficulty.ReMaster));
     addAliasToken(tokens, "宴", p => p.difficulties.add(Difficulty.Utage));
 
+    addAliasToken(tokens, "bas", p => p.difficulties.add(Difficulty.Basic));
+    addAliasToken(tokens, "adv", p => p.difficulties.add(Difficulty.Advanced));
+    addAliasToken(tokens, "exp", p => p.difficulties.add(Difficulty.Expert));
+    addAliasToken(tokens, "mas", p => p.difficulties.add(Difficulty.Master));
+    addAliasToken(tokens, "rem", p => p.difficulties.add(Difficulty.ReMaster));
+    addAliasToken(tokens, "remas", p => p.difficulties.add(Difficulty.ReMaster));
+    addAliasToken(tokens, "utage", p => p.difficulties.add(Difficulty.Utage));
+
     addAliasToken(tokens, "basic", p => p.difficulties.add(Difficulty.Basic));
     addAliasToken(tokens, "advanced", p => p.difficulties.add(Difficulty.Advanced));
     addAliasToken(tokens, "expert", p => p.difficulties.add(Difficulty.Expert));
