@@ -591,7 +591,7 @@ function parseQuery(
 
     // 4. 识别直接定数和定数范围，如 13.4, 13.1-13.4, 13.1-.4, 13.1,13.2,13.4
     const itemPattern = `(?:\\d+(?:\\.\\d+)?-(?:\\d+(?:\\.\\d+)?|\\.\\d+)|\\d+\\.\\d+)`;
-    const listRegex = new RegExp(`(?<![a-zA-Z0-9.])(${itemPattern}(?:,${itemPattern})*)(?![a-zA-Z0-9.])`, "g");
+    const listRegex = new RegExp(`(?<![0-9.])(${itemPattern}(?:,${itemPattern})*)(?![0-9.])`, "g");
 
     rest = rest.replace(listRegex, (matchedString) => {
         // 必须包含点号，避免与不含点号的等级混淆
