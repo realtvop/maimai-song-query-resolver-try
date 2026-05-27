@@ -13,6 +13,7 @@ interface ParsedQuery {
 }
 
 interface ParsedQueryBranch {
+    musicIds: Set<number>;
     categories: Set<string>;
     versions: Set<string>;
     difficulties: Set<MusicDifficultyID>;
@@ -132,6 +133,7 @@ function buildTokens(versions: Version[]) {
 
 function createEmptyParsedQueryBranch(): ParsedQueryBranch {
     return {
+        musicIds: new Set(),
         categories: new Set(),
         versions: new Set(),
         difficulties: new Set(),
@@ -142,6 +144,7 @@ function createEmptyParsedQueryBranch(): ParsedQueryBranch {
 
 function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
     return {
+        musicIds: new Set(branch.musicIds),
         categories: new Set(branch.categories),
         versions: new Set(branch.versions),
         difficulties: new Set(branch.difficulties),
@@ -154,6 +157,7 @@ function cloneParsedQueryBranch(branch: ParsedQueryBranch): ParsedQueryBranch {
 
 function branchKey(branch: ParsedQueryBranch): string {
     return JSON.stringify({
+        musicIds: [...branch.musicIds].sort((a, b) => a - b),
         categories: [...branch.categories].sort(),
         versions: [...branch.versions].sort(),
         difficulties: [...branch.difficulties].sort((a, b) => a - b),
@@ -235,7 +239,19 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         }
     }
 
-    // 2. 识别等级：12 / 12+ / 14+
+    // 2. 识别曲目 ID：id11451 / id8
+    rest = rest.replace(/id(\d+)/g, (_, rawId: string) => {
+        const id = Number(rawId);
+        if (!Number.isSafeInteger(id)) return "";
+
+        for (const branch of parsed.branches) {
+            branch.musicIds.add(id);
+        }
+
+        return "";
+    });
+
+    // 3. 识别等级：12 / 12+ / 14+
     // 注意：这里是显示等级，不把 12+ 当 12.5。
     rest = rest.replace(/(?:^|[^a-z0-9])((?:1[0-5]|[1-9])\+?)(?=$|[^a-z0-9])/g, full => {
         const level = full.match(/(?:1[0-5]|[1-9])\+?/)?.[0];
@@ -247,7 +263,7 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         return "";
     });
 
-    // 3. 识别内部定数范围，比如 ds>=13.7 / 定数13.6 / ra14.2
+    // 4. 识别内部定数范围，比如 ds>=13.7 / 定数13.6 / ra14.2
     rest = rest.replace(/(?:ds|定数|internal)(>=|<=|>|<|=)?(\d+(?:\.\d+)?)/g, (_, op: string | undefined, rawValue: string) => {
         const value = Number(rawValue);
         if (!Number.isFinite(value)) return "";
@@ -272,7 +288,7 @@ function parseQuery(query: string, versions: Version[]): ParsedQuery {
         return "";
     });
 
-    // 4. 识别但忽略玩家成绩条件：fc / fc+ / ap / ap+ / b50
+    // 5. 识别但忽略玩家成绩条件：fc / fc+ / ap / ap+ / b50
     // 因为 Music metadata 里没有玩家成绩数据；移除它们是为了不污染 keyword。
     rest = rest.replace(/(?:ap\+|ap|fc\+|fcp|fc|b\d{1,3})/g, "");
 
@@ -361,6 +377,10 @@ export function searchMusic(
     const results = musics
         .map(music => {
             const hasMatchingBranch = parsed.branches.some(branch => {
+                if (branch.musicIds.size > 0 && !branch.musicIds.has(music.id)) {
+                    return false;
+                }
+
                 if (branch.categories.size > 0 && !branch.categories.has(music.category)) {
                     return false;
                 }
